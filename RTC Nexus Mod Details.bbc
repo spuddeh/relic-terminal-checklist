@@ -1,0 +1,85 @@
+[center][size=6][color=#ffff00][b]Relic Terminal Checklist[/b][/color][/size]
+[size=4]An in-game UI checklist to track all 9 Relic Terminals.[/size][/center]
+
+Made for by request, based on my [url=https://www.nexusmods.com/cyberpunk2077/mods/25594]Perk Shard Checklist[/url] mod.
+
+This mod adds a simple, in-game UI to track all 9 Relic Terminals so you never have to alt-tab again.
+
+[center][img]https://i.imgur.com/WKUrfSX.gif[/img][/center]
+
+[line]
+[size=5][color=#ffff00][b]New in 2.0.0: The Automation Update[/b][/color][/size]
+[list]
+[*][b]Proximity Scanner:[/b] Passively detects uncollected Relic Terminals nearby (50m range) and marks them on your HUD with a custom Relic icon. No more spamming the "Scan" button!
+[*][b]Smart Pause:[/b] The scanner automatically pauses during Loading Screens, Fast Travel, and Menus to save performance. It includes a smart "Fade-In" grace period so you don't get spammed with notifications the instant you load in.
+[*][b]Zero-Overhead:[/b] Heavily optimized to ensure it has negligible impact on your FPS.
+[/list]
+
+[line]
+
+[size=5][color=#ffff00][b]Features[/b][/color][/size]
+[list]
+[*][b]Automatic Tracking[/b]: Passively detects Relic Terminals as you play and marks them as collected.
+[*][b]In-Game Checklist[/b]: Manually track or view your progress on all 9 Terminals in Dogtown.
+[*]Progress is saved automatically with your game save (per-character).
+[*]A [b]Settings[/b] tab to configure the new Proximity Scanner (Radius, Interval) and optional [b]Lazy Mode[/b].
+[*]In-game descriptions, closest fast travel points, and location info for every terminal.
+[*]A [b]Set Map Pin[/b] button to create a waypoint to the terminal's location.
+[*]A [b]Teleport[/b] button (in Lazy Mode) to instantly teleport to the terminal.
+[*]An [b]Unstuck[/b] button (in Lazy Mode) to teleport you to V's H10 apartment if you get stuck.
+[*]A counter to see your total collected terminals.
+[/list]
+
+[line]
+
+[size=5][color=#ffff00][b]How to Use[/b][/color][/size]
+[list=1]
+[*]Open the Cyber Engine Tweaks overlay.
+[*]The "Relic Terminal Checklist" window will appear.
+[*]Click the checkboxes to mark your progress manually, or let the **Proximity Scanner** find them for you.
+[*]**Automatic Tracking**: Enable this in the **Settings** tab (On by default) to see nearby terminals on your HUD.
+[*]To save your progress, [b]Quicksave (F5)[/b] or [b]Manual Save[/b] your game. The progress is tied to that save file.
+[/list]
+
+[line]
+
+[size=5][color=#ffff00][b]Lazy Mode[/b][/color][/size]
+For those who just want to get it done, you can enable "Lazy Mode" in the Settings tab. This will show the "Teleport" and "Unstuck" buttons.
+
+[color=#e06666][b]WARNING:[/b][/color] Using teleport functions can be risky. It may cause issues with your save or get you stuck. Use at your own risk and always have a recent manual save!
+
+[center][img]https://i.imgur.com/I1tPWx4.gif[/img][/center]
+
+[line]
+
+[size=5][color=#ffff00][b]Installation[/b][/color][/size]
+[list=1]
+[*]Install with a mod manager (recommended).
+[*]Install [url=https://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url].
+[*]For manual install, download and extract the main file into your Cyberpunk 2077 game directory.
+[/list]
+
+[line]
+
+[size=5][color=#ffff00][b]Known Issues[/b][/color][/size]
+[list]
+[*]When you use the "Set Map Pin" button, the breadcrumbs (navigation path) may not appear immediately. You will need to [b]open and close your in-game Map (M)[/b] for the path to appear.
+[*]**Retroactive Tracking**: Unfortunately, Relic Terminals do not set unique "Quest Facts" when collected. The mod cannot retroactively detect terminals you picked up *before* installing, but the Proximity Scanner will allow you to quickly verify locations as you visit them.
+[/list]
+
+[line]
+
+[size=5][color=#ffff00][b]A Note from the Author[/b][/color][/size]
+This mod is based on my [url=https://www.nexusmods.com/cyberpunk2077/mods/25594]Perk Shard Checklist[/url] mod, which was created with the help of an AI while I am learning to code in LUA.
+
+[line]
+
+[size=5][color=#ffff00][b]Inspiration & Credits[/b][/color][/size]
+A massive shoutout to [url=https://next.nexusmods.com/profile/Toney][b]Toney[/b] [/url]for coming up with the idea for this mod! I also want to credit [b]yakuzadeso[/b], as their [url=https://www.nexusmods.com/cyberpunk2077/mods/17452]Iconic Weapons Checklist[/url] was a heavy inspiration for how I put this together.
+
+This mod would not be possible without:
+[list]
+[*][b]yamashi[/b] and the CET team for creating [url=httpsA://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url].
+[*][b]psiberx[/b] for their amazing [url=https://github.com/psiberx/cp2077-cet-kit]CET Kit[/url] and especially the 'GameSession.lua' module, which handles all the per-save-file saving.
+[*]The Cyberpunk 2077 Modding community for all the public documentation and guides.
+[/list]
