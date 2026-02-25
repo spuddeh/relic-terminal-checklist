@@ -10,3 +10,7 @@ custom_tweaks.txt
 .vscode/
 .history/
 *.log
+
+*.zip
+*.xcf
+images/
