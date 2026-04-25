@@ -1,14 +1,15 @@
 -- ======================================================================================
--- Mod Name: Relic Terminal Checklist
+-- SettingsUI.lua  (canonical: _shared/checklist/)
 -- Author: Spuddeh
--- Description: Handles drawing the Settings tab and standard mod functions.
--- Mod Version: 2.0.1
+-- Description: Shared settings panel for the Checklist mod family — automation toggle,
+--              scanner radius slider with debounce, drawCustomSettings callback.
+--              Deployed byte-identical to each mod.
 -- ======================================================================================
 
 local SettingsUI = {}
 local Utils = require("Modules/Utils")
 
---- Draws the Standard Automation Settings (Interval, Radius, Toggle)
+--- Draws the Standard Automation Settings (Toggle, Radius)
 --- @param settings table
 --- @param onChanged callback
 function SettingsUI.DrawAutomationSettings(settings, onChanged)
@@ -17,7 +18,7 @@ function SettingsUI.DrawAutomationSettings(settings, onChanged)
 
     -- 1. Automation Master Toggle
     local current_auto = settings.automation_enabled
-    if current_auto == nil then current_auto = true end -- Default True
+    if current_auto == nil then current_auto = true end
     local new_auto = ImGui.Checkbox("Enable Automation", current_auto)
     if new_auto ~= current_auto then
         settings.automation_enabled = new_auto
@@ -28,23 +29,17 @@ function SettingsUI.DrawAutomationSettings(settings, onChanged)
     if settings.automation_enabled then
         ImGui.Spacing()
 
-        -- 2. Interval Slider
-        local current_interval = settings.scanner_interval or 5.0
-        local new_interval = ImGui.SliderFloat("Scan Interval (s)", current_interval, 1.0, 10.0, "%.1f")
-        if new_interval ~= current_interval then
-            settings.scanner_interval = new_interval
-            if onChanged then onChanged() end
-        end
-
-        -- 3. Radius Slider (Detection Radius 25m - 100m)
+        -- 2. Radius Slider (Detection Radius 25m - 100m)
         local current_radius = settings.scanner_radius or 50.0
         local new_radius = ImGui.SliderInt("Detection Radius (m)", math.floor(current_radius), 25, 100)
         if new_radius ~= math.floor(current_radius) then
-            settings.scanner_radius = new_radius + 0.0 -- Ensure float
+            settings.scanner_radius = new_radius + 0.0
+        end
+        if ImGui.IsItemDeactivatedAfterEdit() then
             if onChanged then onChanged() end
         end
-        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "Start checking at this distance.")
-        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "Auto-collect/Snap happens at 25m (Fixed).")
+        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "Show map pins and check for nearby items within this distance.")
+        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "Auto-collect/Snap to container happens at 25m (Fixed).")
     end
     ImGui.Spacing()
 end

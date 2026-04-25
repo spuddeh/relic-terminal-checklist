@@ -1,41 +1,54 @@
 -- ======================================================================================
--- Mod Name: Relic Terminal Checklist
+-- Mod Name: Perk Shard Checklist
 -- Author: Spuddeh
--- Description: Shared utility functions and constants for Relic Terminal Checklist
--- Mod Version: 2.0.1
+-- Description: Shared utility functions and constants for Checklist Mods
+-- Mod Version: 2.0.2
 -- ======================================================================================
 
 local Utils = {}
 
--- Standard Logging Prefix
-Utils.LogPrefix = IconGlyphs.DataMatrixScan .. " [Relic Terminal Checklist] "
+-- Standard Logging Prefix — set by each mod's init.lua via Utils.LogPrefix = "..."
+Utils.LogPrefix = ""
 
 -- Log Levels
 Utils.LogLevel = {
-    Info = "INFO",
-    Warn = "WARN",
+    Info  = "INFO",
+    Warn  = "WARN",
     Error = "ERROR",
     Debug = "DEBUG"
 }
 
---- Safe Logger Helper (Console + File)
+-- Internal debug flag — set via Utils.SetDebugMode(bool)
+local _debugMode = false
+
+--- Enable or disable debug-level logging.
+--- Call this after loading config: Utils.SetDebugMode(settings.dev_mode_enabled)
+function Utils.SetDebugMode(enabled)
+    _debugMode = enabled == true
+end
+
+--- Logger with two modes:
+---   Debug mode OFF: Debug → nothing; Info/Warn/Error → console only (no disk writes)
+---   Debug mode ON:  all levels → console + log file
 --- @param msg string
---- @param level string|nil (Optional) Default: Info
+--- @param level string|nil  Default: Info
 function Utils.Log(msg, level)
     level = level or Utils.LogLevel.Info
 
-    -- Format: [Mod Name] [LEVEL] Message
+    if not _debugMode then
+        if level == Utils.LogLevel.Debug then return end
+        -- Info/Warn/Error go to console only — no disk I/O
+        print(string.format("%s[%s] %s", (Utils.LogPrefix or ""), level, tostring(msg)))
+        return
+    end
+
+    -- Debug mode: all levels go to console AND log file
     local fullMsg = string.format("%s[%s] %s", (Utils.LogPrefix or ""), level, tostring(msg))
-
-    -- 1. Console Output (All levels)
     print(fullMsg)
-
-    -- 2. File Output (Error & Debug Only)
     if spdlog then
-        if level == Utils.LogLevel.Error and spdlog.error then
+        if level == Utils.LogLevel.Error then
             spdlog.error(fullMsg)
-        elseif level == Utils.LogLevel.Debug and spdlog.info then
-            -- spdlog.debug might not be exposed, using info
+        else
             spdlog.info(fullMsg)
         end
     end

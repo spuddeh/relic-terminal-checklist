@@ -1,8 +1,8 @@
 -- ======================================================================================
--- Mod Name: Relic Terminal Checklist
+-- ChecklistUI.lua  (canonical: _shared/checklist/)
 -- Author: Spuddeh
--- Description: Shared UI Module for Checklist Mods.
--- Mod Version: 2.0.1
+-- Description: Shared ImGui rendering for the Checklist mod family — TabBar, list,
+--              detail view, drawCustomActions callback. Deployed byte-identical to each mod.
 -- ======================================================================================
 
 local ChecklistUI = {}
