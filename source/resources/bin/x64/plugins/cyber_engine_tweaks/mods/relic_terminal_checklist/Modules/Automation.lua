@@ -80,7 +80,18 @@ local function BuildHashLookup()
     end
 end
 
--- ### RTC-SPECIFIC: PERK GRANT HELPERS ###
+-- ### RTC-SPECIFIC: ENTITY HELPERS ###
+
+-- Resolves the PerkTraining entity for a DB entry via its entityID.
+-- Returns the entity (if loaded) or nil.
+local function ResolveTerminalEntity(entry)
+    if not entry.entityID then return nil end
+    local success, hashVal = pcall(loadstring("return " .. tostring(entry.entityID)))
+    if not success or not hashVal then return nil end
+    local tid = entEntityID.new()
+    tid.hash = hashVal
+    return Game.FindEntityByID(tid)
+end
 
 -- Returns true if the terminal's PS reports IsPerkGranted = true, false otherwise, nil on failure.
 local function IsEntityGranted(entity)
@@ -92,6 +103,28 @@ local function IsEntityGranted(entity)
     return granted
 end
 
+-- Cached "game has detected this terminal" check. WasDetected is a persistent flag set by
+-- the game when the player first crosses a terminal's trigger volume; once true it stays
+-- true across save reloads and triggers the game's own native relic mappin permanently.
+-- The cache is positive-only (once true, stays true for the session) and is reset in
+-- Automation.Init so reloading an earlier save where the terminal hadn't been detected
+-- yet doesn't inherit a stale `true` from the OnAreaEnter observer.
+local _detectedCache = {}
+
+local function HasGameDetected(entry)
+    if _detectedCache[entry.id] then return true end
+    local entity = ResolveTerminalEntity(entry)
+    if not entity then return false end
+    local ok, ps = pcall(function() return entity:GetDevicePS() end)
+    if not ok or not ps then return false end
+    local okDet, detected = pcall(function() return ps:WasDetected() end)
+    if okDet and detected then
+        _detectedCache[entry.id] = true
+        return true
+    end
+    return false
+end
+
 -- Retroactive grant scan — iterates all uncollected entries, tries to resolve their entity,
 -- and auto-collects any whose IsPerkGranted = true. Runs on WhenReady + overlay open for
 -- entities already loaded in the world (typically player is in Dogtown).
@@ -100,16 +133,11 @@ function Automation.CheckPerkGrants()
     for _, cat in ipairs(RelicTerminalsDB) do
         for _, entry in ipairs(cat.entries) do
             if not IsCollected(entry.id) and entry.entityID then
-                local success, hashVal = pcall(loadstring("return " .. tostring(entry.entityID)))
-                if success and hashVal then
-                    local tid = entEntityID.new()
-                    tid.hash = hashVal
-                    local entity = Game.FindEntityByID(tid)
-                    if entity and IsEntityGranted(entity) == true then
-                        Core.SetItemStatus(entry.id, true)
-                        Utils.Log("[PerkGrants] Retroactive: " .. entry.name, Utils.LogLevel.Debug)
-                        count = count + 1
-                    end
+                local entity = ResolveTerminalEntity(entry)
+                if entity and IsEntityGranted(entity) == true then
+                    Core.SetItemStatus(entry.id, true)
+                    Utils.Log("[PerkGrants] Retroactive: " .. entry.name, Utils.LogLevel.Debug)
+                    count = count + 1
                 end
             end
         end
@@ -121,8 +149,10 @@ end
 
 -- ### RTC-SPECIFIC: CALLBACKS ###
 
--- SpatialSet.onEnter (player enters 50m ring): notification only.
--- Mod mappin is created by Core.RegisterItemSet's default SpatialSet onEnter.
+-- SpatialSet.onEnter (player enters scanner_radius ring): notification only.
+-- Always notifies on boundary cross — even after the game's native mappin took over —
+-- so the player gets a heads-up they're approaching an unactivated terminal.
+-- Mod mappin creation is handled by Core, gated by CanMappin below.
 local function OnItemEnter(spatialEntry, _)
     local entry = spatialEntry.dbEntry
     if not Core.IsNotified(entry.id) then
@@ -131,24 +161,14 @@ local function OnItemEnter(spatialEntry, _)
     end
 end
 
--- Snap zone onEnter (player enters 25m ring): hide mod mappin (game's native icon takes over)
--- AND do a one-shot IsPerkGranted check for retroactive detection on this terminal.
-local function OnSnapEnter(entry, entity)
-    Core.RemoveMappin(entry.id)
-    if IsEntityGranted(entity) == true then
-        Utils.Log("[SnapEnter] Retroactive grant: " .. entry.name, Utils.LogLevel.Debug)
-        Core.SetItemStatus(entry.id, true)
-        Utils.Notify("Terminal Data Acquired: " .. entry.name)
-    end
-end
-
--- Snap zone onExit (player crosses 25m outward into 25-50m ring): restore mod mappin.
--- If item has been collected in the meantime, the zone is already unregistered so this
--- won't fire. If the player is still within 50m, the mappin should be visible.
-local function OnSnapExit(entry)
-    if not IsCollected(entry.id) then
-        Core.CreateMappin(entry, nil)
-    end
+-- canMappin gate: skip mod MAPPIN creation once the game has detected the terminal
+-- (m_wasDetected is persistent and triggers the game's own native relic mappin).
+-- Without this gate, re-entering scanner range after a trigger crossing produces
+-- duplicate icons (mod mappin + native mappin at the same coords). The notification
+-- is intentionally NOT gated here — onItemEnter still fires so the player gets a
+-- "terminal detected" prompt on re-entry even after the native mappin took over.
+local function CanMappin(entry)
+    return not HasGameDetected(entry)
 end
 
 -- ### SCAN (overlay open + WhenReady) ###
@@ -165,19 +185,28 @@ function Automation.Init(sessionState, _, debugMode, settings)
     _sessionState = sessionState
     _isDebug      = debugMode or false
 
+    -- Reset the positive cache. Lua module state persists across save reloads (only a
+    -- full game restart clears it), so without this reset, loading an earlier save
+    -- where a terminal hadn't been crossed yet would inherit a stale `true` from the
+    -- OnAreaEnter observer and incorrectly suppress the mod mappin. WasDetected on the
+    -- entity itself is authoritative — the cache will repopulate on next query if the
+    -- save was made after a real detection.
+    _detectedCache = {}
+
     NormaliseEntries()
     BuildHashLookup()
 
     Core.Init(GetMod("0-Engine"), sessionState, settings, {
-        setName          = "rtc_items",
-        mappinVariant    = gamedataMappinVariant.Zzz16_RelicDeviceBasicVariant,
-        snapRadius       = 25.0,          -- native relic icon takes over at this range
-        buildEntries     = BuildEntries,
-        onItemEnter      = OnItemEnter,
-        onSnapEnter      = OnSnapEnter,
-        onSnapExit       = OnSnapExit,
-        noAutoSnap       = true,           -- RTC manages the mappin itself (hide at 25m, restore on exit)
-        isCollected      = IsCollected,
+        setName       = "rtc_items",
+        mappinVariant = gamedataMappinVariant.Zzz16_RelicDeviceBasicVariant,
+        -- No snap zone callbacks: per-terminal trigger volumes are observed instead
+        -- (ObserveAfter on PerkTraining.OnAreaEnter, installed by Automation.SetupObservers).
+        -- Snap zone is registered by Core but is dormant (noAutoSnap, no onSnapEnter/Exit).
+        noAutoSnap    = true,
+        buildEntries  = BuildEntries,
+        canMappin     = CanMappin,       -- mappin-only gate: hides our icon when game's native takes over
+        onItemEnter   = OnItemEnter,
+        isCollected   = IsCollected,
     }, _isDebug)
 
     local _, count, total = Core.CheckAllCollected()
@@ -185,34 +214,36 @@ function Automation.Init(sessionState, _, debugMode, settings)
 end
 
 -- ### OBSERVER SETUP ###
--- Called once from init.lua after 0-Engine ready. Binds ObserveAfter on the PS grant method.
--- Also hashes the PS's entity ID back to our DB.
+-- Called once from init.lua. Installs both Redscript-method observers:
+--   1. PerkTrainingControllerPS.TryGrantPerk → activation detection (auto-collect)
+--   2. PerkTraining.OnAreaEnter → game's trigger-volume entry (hide mod mappin, native takes over)
 
-local _observerInstalled = false
+local _observersInstalled = false
 
-function Automation.SetupGrantObserver()
-    if _observerInstalled then return end
-    _observerInstalled = true
+local function MatchEntryByHash(hashStr)
+    local entry = _hashToEntry[hashStr]
+    if entry then return entry end
+    -- Defensive: strip ULL suffix for compatibility with formats that drop it
+    return _hashToEntry[hashStr:gsub("ULL", "")]
+end
 
+function Automation.SetupObservers()
+    if _observersInstalled then return end
+    _observersInstalled = true
+
+    -- 1. Activation detection: fires when player completes the personal-link interaction.
     ObserveAfter("PerkTrainingControllerPS", "TryGrantPerk", function(this)
         if not _sessionState or not _sessionState.progress then return end
 
         local pid = this:GetID()
         if not pid then return end
-        local hashStr = tostring(pid.entityHash)
-
-        local entry = _hashToEntry[hashStr]
+        local entry = MatchEntryByHash(tostring(pid.entityHash))
         if not entry then
-            -- Try stripped form — defensive against ULL suffix differences
-            local stripped = hashStr:gsub("ULL", "")
-            entry = _hashToEntry[stripped]
-            if not entry then
-                if _isDebug then
-                    Utils.Log("[Observer] TryGrantPerk fired on unknown hash: " .. hashStr,
-                        Utils.LogLevel.Debug)
-                end
-                return
+            if _isDebug then
+                Utils.Log("[Observer] TryGrantPerk fired on unknown hash: " ..
+                    tostring(pid.entityHash), Utils.LogLevel.Debug)
             end
+            return
         end
 
         if IsCollected(entry.id) then return end
@@ -222,7 +253,30 @@ function Automation.SetupGrantObserver()
         Utils.Notify("Terminal Data Acquired: " .. entry.name)
     end)
 
-    Utils.Log("TryGrantPerk observer installed.")
+    -- 2. Game-detected trigger: fires when player crosses the terminal's native trigger volume.
+    -- The game sets m_wasDetected = true and shows its own native relic mappin permanently.
+    -- We remove ours and flip _detectedCache true so canShow suppresses recreation on
+    -- subsequent SpatialSet boundary crosses (otherwise we'd duplicate the native mappin).
+    ObserveAfter("PerkTraining", "OnAreaEnter", function(this)
+        if not _sessionState or not _sessionState.progress then return end
+
+        local entID = this:GetEntityID()
+        if not entID then return end
+        local entry = MatchEntryByHash(tostring(entID.hash))
+        if not entry then return end
+        if IsCollected(entry.id) then return end
+
+        if not _detectedCache[entry.id] then
+            _detectedCache[entry.id] = true
+            if _isDebug then
+                Utils.Log("[Observer] OnAreaEnter for " .. entry.name ..
+                    " — game showing native mappin; hiding ours.", Utils.LogLevel.Debug)
+            end
+        end
+        Core.RemoveMappin(entry.id)
+    end)
+
+    Utils.Log("Observers installed: TryGrantPerk + OnAreaEnter.")
 end
 
 -- ### DEV TOOL: DebugTarget ###

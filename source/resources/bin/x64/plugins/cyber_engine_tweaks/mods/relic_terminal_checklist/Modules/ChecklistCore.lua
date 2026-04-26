@@ -186,6 +186,13 @@ function ChecklistCore.CreateMappin(entry, entity)
     end
 
     _createdMappins[entry.id] = Game.GetMappinSystem():RegisterMappin(mappinData, pos)
+
+    if _isDebug then
+        Utils.Log(string.format("[CreateMappin] %s (%s) at (%.1f,%.1f,%.1f)%s | handle=%s",
+            entry.id, entry.name or "?", pos.x, pos.y, pos.z,
+            entity and " [snapped to entity]" or " [coords]",
+            tostring(_createdMappins[entry.id])), Utils.LogLevel.Debug)
+    end
 end
 
 function ChecklistCore.RemoveMappin(entryID)
@@ -232,6 +239,7 @@ local function RegisterDetectionZone(entry)
         onTick   = function()
             if _config and _config.noAutoSnap then return end
             if _config and _config.canShow and not _config.canShow(entry) then return end
+            if _config and _config.canMappin and not _config.canMappin(entry) then return end
 
             -- Ensure mappin exists (player may have loaded inside zone during grace period)
             if not _createdMappins[entry.id] then
@@ -446,9 +454,16 @@ function ChecklistCore.RegisterItemSet()
             local entry = spatialEntry.dbEntry
             _nearbyEntries[entry.id] = entry  -- always track, even during suppression
             if ChecklistCore.IsSuppressed() then return end
+            -- canShow: full gate (mappin + notification). Used for entries that
+            -- shouldn't be revealed at all yet (CSC/CCSC quest_fact / spawn_fact).
             if _config.canShow and not _config.canShow(entry) then return end
-            if not _createdMappins[entry.id] then
-                ChecklistCore.CreateMappin(entry, nil)
+            -- canMappin: narrower gate, mappin only. onItemEnter still fires so
+            -- the mod can notify even when the icon is suppressed (RTC, where the
+            -- game's native mappin takes over after trigger crossing).
+            if not (_config.canMappin and not _config.canMappin(entry)) then
+                if not _createdMappins[entry.id] then
+                    ChecklistCore.CreateMappin(entry, nil)
+                end
             end
             if _config.onItemEnter then
                 _config.onItemEnter(spatialEntry, distSq)
@@ -616,9 +631,11 @@ function ChecklistCore.Scan()
         local entry = spatialEntry.dbEntry
         if entry and entry.coords then
             if not (_config.canShow and not _config.canShow(entry)) then
-                if not _createdMappins[entry.id] then
-                    local entity = ResolveEntity(entry)
-                    ChecklistCore.CreateMappin(entry, entity)
+                if not (_config.canMappin and not _config.canMappin(entry)) then
+                    if not _createdMappins[entry.id] then
+                        local entity = ResolveEntity(entry)
+                        ChecklistCore.CreateMappin(entry, entity)
+                    end
                 end
                 if _config.onItemEnter then
                     local dx     = playerPos.x - entry.coords.x

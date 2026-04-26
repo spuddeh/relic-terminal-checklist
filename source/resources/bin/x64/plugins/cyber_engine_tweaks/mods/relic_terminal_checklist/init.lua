@@ -195,8 +195,10 @@ registerForEvent("onInit", function()
     GameUI.OnMenuOpen(function() Automation.SetMenuPaused(true) end)
     GameUI.OnMenuClose(function() Automation.SetMenuPaused(false) end)
 
-    -- TryGrantPerk observer — instant session-time detection. Installed once.
-    Automation.SetupGrantObserver()
+    -- Observers — installed once. Sets up:
+    --   - TryGrantPerk: instant session-time activation detection
+    --   - OnAreaEnter:  hides mod mappin when game's native trigger fires (per-terminal trigger size)
+    Automation.SetupObservers()
 
     -- PlayerInvalidated: resource cleanup only. v1.18+ handles most vendor false-fires,
     -- but PL Dogtown vendors can still trigger. Split responsibility: cleanup here,
