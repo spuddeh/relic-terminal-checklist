@@ -46,9 +46,9 @@ end
 
 --- Draws the Settings UI
 --- @param settings table The persistent settings table (must contain .lazy_mode)
---- @param runtimeState table A shared runtime table containing .current_mappin
---- @param callbacks table Map of callbacks: { onSettingChanged, drawCustomSettings }
-function SettingsUI.Draw(settings, runtimeState, callbacks)
+--- @param _runtimeState table Shared runtime table (reserved; pin clearing uses callbacks.onClearAllPins)
+--- @param callbacks table Map of callbacks: { onSettingChanged, drawCustomSettings, onClearAllPins }
+function SettingsUI.Draw(settings, _runtimeState, callbacks)
     if settings.dev_mode_enabled then
         ImGui.TextColored(1.0, 0.0, 0.0, 1.0, "DEV MODE ACTIVE")
         ImGui.Spacing()
@@ -66,12 +66,11 @@ function SettingsUI.Draw(settings, runtimeState, callbacks)
     ImGui.TextWrapped("Enables 'Teleport' buttons.")
 
     ImGui.Spacing()
-    -- Clear Last Map Pin Button
+    -- Clear Last Map Pin Button. Each mod provides onClearAllPins because the pin
+    -- model differs (entry-coords adopted pin vs. standalone gig pin handle, etc.).
     if ImGui.Button(IconGlyphs.MapMarkerOff .. " Clear Last Map Pin") then
-        if runtimeState and runtimeState.current_mappin then
-            Game.GetMappinSystem():UnregisterMappin(runtimeState.current_mappin)
-            runtimeState.current_mappin = nil
-            Utils.Log("Last map pin cleared.")
+        if callbacks.onClearAllPins then
+            callbacks.onClearAllPins()
         else
             Utils.Log("No map pin to clear.")
         end

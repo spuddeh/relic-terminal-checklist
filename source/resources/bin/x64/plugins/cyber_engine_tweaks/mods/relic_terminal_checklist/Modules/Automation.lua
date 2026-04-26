@@ -22,6 +22,8 @@ Automation.RegisterItemSet          = Core.RegisterItemSet
 Automation.UnregisterItemSet        = Core.UnregisterItemSet
 Automation.RemoveMappin             = Core.RemoveMappin
 Automation.HasNearbyEntries         = Core.HasNearbyEntries
+Automation.SetUserPin               = Core.SetUserPin
+Automation.ClearUserPin             = Core.ClearUserPin
 
 -- ### RTC-SPECIFIC: STATE ###
 
