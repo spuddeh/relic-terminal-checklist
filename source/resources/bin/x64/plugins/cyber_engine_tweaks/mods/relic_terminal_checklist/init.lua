@@ -211,13 +211,14 @@ registerForEvent("onInit", function()
     -- (Proximity detection is handled by Core's onZoneTick → game's native relic mappin.)
     Automation.SetupObservers()
 
-    -- PlayerInvalidated: resource cleanup only. v1.18+ handles most vendor false-fires,
-    -- but PL Dogtown vendors can still trigger. Split responsibility: cleanup here,
-    -- isSessionActive gated by GameSession.OnEnd below.
-    Engine.Subscribe("PlayerInvalidated", function()
-        Utils.Log("Player Invalidated. Cleaning up SpatialSet.")
-        Automation.UnregisterItemSet()
-    end)
+    -- NO PlayerInvalidated teardown — deliberate. 0-Engine's SpatialHash.Reset()/
+    -- Proximity.Reset() (called on PlayerInvalidated) only clear active state; they do
+    -- NOT unregister our SpatialSet/zones. Calling UnregisterItemSet() here would
+    -- destroy registrations that otherwise persist, turning a transient false-
+    -- invalidation (0-Engine 1.18.2 fires PlayerInvalidated on saves) into a permanent
+    -- "broken until reload". By doing nothing, the registrations survive and 0-Engine
+    -- auto-resumes polling them once its Lifecycle recovers. isSessionActive stays
+    -- gated by GameSession.OnEnd (true session end only).
 
     GameSession.OnEnd(function()
         Utils.Log("Game Session Ended.")
