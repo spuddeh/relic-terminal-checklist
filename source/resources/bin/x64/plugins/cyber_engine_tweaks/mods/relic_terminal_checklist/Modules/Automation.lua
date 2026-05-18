@@ -4,6 +4,15 @@
 -- Description: RTC-specific automation logic. Delegates shared behaviour to ChecklistCore.
 -- Mod Version: 2.1.0
 -- ======================================================================================
+--
+-- RTC does NOT draw its own proximity mappin. Instead, when the player comes within
+-- scanner_radius and the PerkTraining device entity has streamed in, RTC triggers the
+-- game's OWN native detection (PerkTrainingControllerPS:SetDeviceAsDetected +
+-- PerkTraining:TryShowMappin). The game then owns the relic mappin entirely — show
+-- AND teardown-on-grant. This removes the whole custom-mappin / canMappin /
+-- _detectedCache / OnAreaEnter-observer layer that previous iterations needed.
+-- Proven in-game 2026-05-19 (WasDetected false→true, native icon appeared, automation off).
+-- ======================================================================================
 
 local Automation        = {}
 local Core              = require("Modules/ChecklistCore")
@@ -22,13 +31,12 @@ Automation.RegisterItemSet          = Core.RegisterItemSet
 Automation.UnregisterItemSet        = Core.UnregisterItemSet
 Automation.RemoveMappin             = Core.RemoveMappin
 Automation.HasNearbyEntries         = Core.HasNearbyEntries
-Automation.SetUserPin               = Core.SetUserPin
-Automation.ClearUserPin             = Core.ClearUserPin
 
 -- ### RTC-SPECIFIC: STATE ###
 
 local _sessionState = nil
 local _isDebug      = false
+local _settings     = nil  -- captured at Init (for live scanner_radius in debug logs)
 local _hashToEntry  = {}   -- entityID string → DB entry (built at Init)
 
 local function IsCollected(id)
@@ -105,28 +113,6 @@ local function IsEntityGranted(entity)
     return granted
 end
 
--- Cached "game has detected this terminal" check. WasDetected is a persistent flag set by
--- the game when the player first crosses a terminal's trigger volume; once true it stays
--- true across save reloads and triggers the game's own native relic mappin permanently.
--- The cache is positive-only (once true, stays true for the session) and is reset in
--- Automation.Init so reloading an earlier save where the terminal hadn't been detected
--- yet doesn't inherit a stale `true` from the OnAreaEnter observer.
-local _detectedCache = {}
-
-local function HasGameDetected(entry)
-    if _detectedCache[entry.id] then return true end
-    local entity = ResolveTerminalEntity(entry)
-    if not entity then return false end
-    local ok, ps = pcall(function() return entity:GetDevicePS() end)
-    if not ok or not ps then return false end
-    local okDet, detected = pcall(function() return ps:WasDetected() end)
-    if okDet and detected then
-        _detectedCache[entry.id] = true
-        return true
-    end
-    return false
-end
-
 -- Retroactive grant scan — iterates all uncollected entries, tries to resolve their entity,
 -- and auto-collects any whose IsPerkGranted = true. Runs on WhenReady + overlay open for
 -- entities already loaded in the world (typically player is in Dogtown).
@@ -151,10 +137,9 @@ end
 
 -- ### RTC-SPECIFIC: CALLBACKS ###
 
--- SpatialSet.onEnter (player enters scanner_radius ring): notification only.
--- Always notifies on boundary cross — even after the game's native mappin took over —
--- so the player gets a heads-up they're approaching an unactivated terminal.
--- Mod mappin creation is handled by Core, gated by CanMappin below.
+-- SpatialSet.onEnter (player crosses scanner_radius): notification only — an early
+-- "terminal nearby" heads-up. The native relic mappin is handled by the game once
+-- TriggerNativeDetection fires (see below); RTC draws no mappin of its own.
 local function OnItemEnter(spatialEntry, _)
     local entry = spatialEntry.dbEntry
     if not Core.IsNotified(entry.id) then
@@ -163,14 +148,51 @@ local function OnItemEnter(spatialEntry, _)
     end
 end
 
--- canMappin gate: skip mod MAPPIN creation once the game has detected the terminal
--- (m_wasDetected is persistent and triggers the game's own native relic mappin).
--- Without this gate, re-entering scanner range after a trigger crossing produces
--- duplicate icons (mod mappin + native mappin at the same coords). The notification
--- is intentionally NOT gated here — onItemEnter still fires so the player gets a
--- "terminal detected" prompt on re-entry even after the native mappin took over.
-local function CanMappin(entry)
-    return not HasGameDetected(entry)
+-- Core never draws a mappin for RTC. canMappin is a constant-false gate so Core's
+-- SpatialSet.onEnter / Scan / snap-zone all skip CreateMappin entirely.
+local function CanMappin()
+    return false
+end
+
+-- onZoneTick: fires every throttled tick (~1s) while the player is within the
+-- detection zone (sized to the live scanner_radius). `entity` is the resolved
+-- PerkTraining device, or nil until the game streams it in. The instant it's
+-- available and the game hasn't already detected/granted it, trigger the game's
+-- OWN detection so its native relic mappin appears at our (wider) range. The
+-- WasDetected check makes this idempotent and self-limiting: once SetDeviceAsDetected
+-- runs, WasDetected is permanently true and every later tick returns early.
+local function TriggerNativeDetection(entry, entity)
+    if not entity then return end
+    if IsCollected(entry.id) then return end
+
+    local ok, ps = pcall(function() return entity:GetDevicePS() end)
+    if not ok or not ps then return end
+
+    local okDet, wasDetected = pcall(function() return ps:WasDetected() end)
+    if not okDet then return end
+    if wasDetected then return end   -- game already has it; nothing to do
+
+    local okGrant, granted = pcall(function() return ps:IsPerkGranted() end)
+    if okGrant and granted then return end   -- already collected
+
+    pcall(function() ps:SetDeviceAsDetected() end)
+    pcall(function() entity:TryShowMappin() end)
+
+    if _isDebug then
+        local radius = (_settings and _settings.scanner_radius) or 0
+        local dist = -1
+        pcall(function()
+            local p = Game.GetPlayer()
+            if p then
+                local pp, ep = p:GetWorldPosition(), entity:GetWorldPosition()
+                local dx, dy, dz = pp.x - ep.x, pp.y - ep.y, pp.z - ep.z
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+            end
+        end)
+        Utils.Log(string.format(
+            "[NativeDetect] Triggered game detection for: %s | scanner_radius=%.0fm | dist=%.1fm",
+            entry.name, radius, dist), Utils.LogLevel.Debug)
+    end
 end
 
 -- ### SCAN (overlay open + WhenReady) ###
@@ -186,28 +208,20 @@ end
 function Automation.Init(sessionState, _, debugMode, settings)
     _sessionState = sessionState
     _isDebug      = debugMode or false
-
-    -- Reset the positive cache. Lua module state persists across save reloads (only a
-    -- full game restart clears it), so without this reset, loading an earlier save
-    -- where a terminal hadn't been crossed yet would inherit a stale `true` from the
-    -- OnAreaEnter observer and incorrectly suppress the mod mappin. WasDetected on the
-    -- entity itself is authoritative — the cache will repopulate on next query if the
-    -- save was made after a real detection.
-    _detectedCache = {}
+    _settings     = settings
 
     NormaliseEntries()
     BuildHashLookup()
 
     Core.Init(GetMod("0-Engine"), sessionState, settings, {
         setName       = "rtc_items",
-        mappinVariant = gamedataMappinVariant.Zzz16_RelicDeviceBasicVariant,
-        -- No snap zone callbacks: per-terminal trigger volumes are observed instead
-        -- (ObserveAfter on PerkTraining.OnAreaEnter, installed by Automation.SetupObservers).
-        -- Snap zone is registered by Core but is dormant (noAutoSnap, no onSnapEnter/Exit).
-        noAutoSnap    = true,
+        -- RTC draws no mappin of its own; the game owns the native relic icon.
+        noAutoSnap    = true,                  -- no Core entity-snap behaviour
+        canMappin     = CanMappin,             -- constant-false: Core never creates a mappin for RTC
+        detectionZoneUsesScannerRadius = true, -- detection zone spans the live scanner_radius
         buildEntries  = BuildEntries,
-        canMappin     = CanMappin,       -- mappin-only gate: hides our icon when game's native takes over
-        onItemEnter   = OnItemEnter,
+        onItemEnter   = OnItemEnter,           -- notification only
+        onZoneTick    = TriggerNativeDetection,-- triggers the game's native detection
         isCollected   = IsCollected,
     }, _isDebug)
 
@@ -216,9 +230,11 @@ function Automation.Init(sessionState, _, debugMode, settings)
 end
 
 -- ### OBSERVER SETUP ###
--- Called once from init.lua. Installs both Redscript-method observers:
---   1. PerkTrainingControllerPS.TryGrantPerk → activation detection (auto-collect)
---   2. PerkTraining.OnAreaEnter → game's trigger-volume entry (hide mod mappin, native takes over)
+-- Called once from init.lua. Installs the activation observer:
+--   PerkTrainingControllerPS.TryGrantPerk → instant session-time auto-collect.
+-- (No OnAreaEnter observer needed: RTC triggers detection itself via onZoneTick,
+-- and the game's own OnAreaEnter still runs natively as a harmless idempotent
+-- fallback if the player reaches the real trigger volume first.)
 
 local _observersInstalled = false
 
@@ -233,7 +249,7 @@ function Automation.SetupObservers()
     if _observersInstalled then return end
     _observersInstalled = true
 
-    -- 1. Activation detection: fires when player completes the personal-link interaction.
+    -- Activation detection: fires when player completes the personal-link interaction.
     ObserveAfter("PerkTrainingControllerPS", "TryGrantPerk", function(this)
         if not _sessionState or not _sessionState.progress then return end
 
@@ -255,30 +271,7 @@ function Automation.SetupObservers()
         Utils.Notify("Terminal Data Acquired: " .. entry.name)
     end)
 
-    -- 2. Game-detected trigger: fires when player crosses the terminal's native trigger volume.
-    -- The game sets m_wasDetected = true and shows its own native relic mappin permanently.
-    -- We remove ours and flip _detectedCache true so canShow suppresses recreation on
-    -- subsequent SpatialSet boundary crosses (otherwise we'd duplicate the native mappin).
-    ObserveAfter("PerkTraining", "OnAreaEnter", function(this)
-        if not _sessionState or not _sessionState.progress then return end
-
-        local entID = this:GetEntityID()
-        if not entID then return end
-        local entry = MatchEntryByHash(tostring(entID.hash))
-        if not entry then return end
-        if IsCollected(entry.id) then return end
-
-        if not _detectedCache[entry.id] then
-            _detectedCache[entry.id] = true
-            if _isDebug then
-                Utils.Log("[Observer] OnAreaEnter for " .. entry.name ..
-                    " — game showing native mappin; hiding ours.", Utils.LogLevel.Debug)
-            end
-        end
-        Core.RemoveMappin(entry.id)
-    end)
-
-    Utils.Log("Observers installed: TryGrantPerk + OnAreaEnter.")
+    Utils.Log("Observer installed: TryGrantPerk.")
 end
 
 -- ### DEV TOOL: DebugTarget ###

@@ -27,7 +27,7 @@ local settings = {
 
 local isOverlayOpen   = false
 local isSessionActive = false
-local runtimeState    = { current_pin_entry_id = nil }
+local runtimeState    = { current_mappin = nil }
 local config_file     = "config.json"
 
 -- ### CONFIG IO ###
@@ -95,14 +95,20 @@ local uiCallbacks = {
                 Utils.Log("Teleported to: " .. entry.name, Utils.LogLevel.Debug)
             end
         elseif action == "mappin" then
-            -- Clear any previous user pin (single-pin slot)
-            if runtimeState.current_pin_entry_id then
-                Automation.ClearUserPin(runtimeState.current_pin_entry_id)
-                runtimeState.current_pin_entry_id = nil
+            -- Standalone manual waypoint, fully owned here. Independent of Core's
+            -- proximity automation: behaves exactly like a user-placed map waypoint,
+            -- just at the entry's exact coords. Single-pin slot.
+            if runtimeState.current_mappin then
+                Game.GetMappinSystem():UnregisterMappin(runtimeState.current_mappin)
+                runtimeState.current_mappin = nil
             end
             if entry.coords then
-                Automation.SetUserPin(entry)
-                runtimeState.current_pin_entry_id = entry.id
+                local mappinData = MappinData.new()
+                mappinData.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
+                mappinData.variant = gamedataMappinVariant.CustomPositionVariant
+                mappinData.visibleThroughWalls = true
+                local pin_pos = Vector4.new(entry.coords.x, entry.coords.y, entry.coords.z, 1.0)
+                runtimeState.current_mappin = Game.GetMappinSystem():RegisterMappin(mappinData, pin_pos)
                 Utils.Log("Map pin set for: " .. entry.name)
             end
         end
@@ -115,9 +121,9 @@ local uiCallbacks = {
                 SaveConfig()
             end,
             onClearAllPins = function()
-                if runtimeState.current_pin_entry_id then
-                    Automation.ClearUserPin(runtimeState.current_pin_entry_id)
-                    runtimeState.current_pin_entry_id = nil
+                if runtimeState.current_mappin then
+                    Game.GetMappinSystem():UnregisterMappin(runtimeState.current_mappin)
+                    runtimeState.current_mappin = nil
                     Utils.Log("Last map pin cleared.")
                 else
                     Utils.Log("No map pin to clear.")
@@ -201,9 +207,8 @@ registerForEvent("onInit", function()
     GameUI.OnMenuOpen(function() Automation.SetMenuPaused(true) end)
     GameUI.OnMenuClose(function() Automation.SetMenuPaused(false) end)
 
-    -- Observers — installed once. Sets up:
-    --   - TryGrantPerk: instant session-time activation detection
-    --   - OnAreaEnter:  hides mod mappin when game's native trigger fires (per-terminal trigger size)
+    -- Observer — installed once: TryGrantPerk for instant session-time auto-collect.
+    -- (Proximity detection is handled by Core's onZoneTick → game's native relic mappin.)
     Automation.SetupObservers()
 
     -- PlayerInvalidated: resource cleanup only. v1.18+ handles most vendor false-fires,

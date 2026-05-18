@@ -39,9 +39,10 @@ local _inCutscene     = false
 local _unpauseTime    = 0     -- os.clock() timestamp; future value = teleport cooldown
 local _scanTimerHandle = nil  -- deferred post-grace Scan() handle
 
--- Mappin tracking
-local _createdMappins = {}    -- id → mappin handle (auto OR adopted user pin)
-local _adoptedMappins = {}    -- id → true; flag for sticky user pins (don't auto-remove on SpatialSet.onExit)
+-- Mappin tracking. This is ONLY the proximity auto-mappin. The user "Set Pin"
+-- waypoint is owned entirely by each mod's init.lua and never enters Core — that
+-- decoupling is deliberate (see decisions/user-pin-decoupled-from-core).
+local _createdMappins = {}    -- id → proximity auto-mappin handle
 local _notifiedCache  = {}
 
 -- Vendor notification queue
@@ -173,9 +174,8 @@ end
 -- ### MAPPINS ###
 
 function ChecklistCore.CreateMappin(entry, entity)
-    -- No-op if a mappin already exists for this entry (auto-mappin already registered,
-    -- or a user pin has been adopted via SetUserPin). Callers that want to refresh the
-    -- mappin must call RemoveMappin first.
+    -- No-op if a proximity mappin already exists for this entry. Callers that want
+    -- to refresh it must call RemoveMappin first.
     if _createdMappins[entry.id] then return end
 
     local mappinData = MappinData.new()
@@ -201,63 +201,17 @@ function ChecklistCore.CreateMappin(entry, entity)
     end
 end
 
--- Creates a "user pin" (sticky mappin) for an entry. Uses the same mappin variant as
--- Core's auto-mappin so the visual is consistent. Adopted pins are NOT auto-removed
--- on SpatialSet.onExit (player walking away), but ARE removed on collect or on
--- explicit ClearUserPin. The snap zone updates the pin's position in-place via
--- SetMappinPosition when the entity loads, preserving any GPS trail the player
--- has manually triggered (open/close map).
-function ChecklistCore.SetUserPin(entry)
-    if not entry or not entry.coords then return nil end
-
-    -- If an auto-mappin already exists for this entry, replace it with the user pin
-    if _createdMappins[entry.id] and not _adoptedMappins[entry.id] then
-        Game.GetMappinSystem():UnregisterMappin(_createdMappins[entry.id])
-        _createdMappins[entry.id] = nil
-        _mappinSnapped[entry.id]  = nil
-    end
-
-    -- If this entry already has an adopted pin, leave it (idempotent)
-    if _adoptedMappins[entry.id] and _createdMappins[entry.id] then
-        return _createdMappins[entry.id]
-    end
-
-    local mappinData = MappinData.new()
-    mappinData.mappinType = TweakDBID.new('Mappins.DefaultStaticMappin')
-    mappinData.variant = (_config and _config.getMappinVariant and _config.getMappinVariant(entry))
-        or (_config and _config.mappinVariant)
-        or gamedataMappinVariant.CustomPositionVariant
-    mappinData.visibleThroughWalls = true
-
-    local pos = Vector4.new(entry.coords.x, entry.coords.y, entry.coords.z + 1.0, 1.0)
-
-    _createdMappins[entry.id] = Game.GetMappinSystem():RegisterMappin(mappinData, pos)
-    _adoptedMappins[entry.id] = true
-
-    if _isDebug then
-        Utils.Log(string.format("[SetUserPin] %s (%s) at (%.1f,%.1f,%.1f) | handle=%s",
-            entry.id, entry.name or "?", pos.x, pos.y, pos.z,
-            tostring(_createdMappins[entry.id])), Utils.LogLevel.Debug)
-    end
-
-    return _createdMappins[entry.id]
-end
-
--- Clears a user pin for an entry (if one exists). Use when player pins a different
--- entry, explicitly clears the pin, or any other case where the sticky pin should go.
--- Auto-mappins (non-adopted) pass through unchanged.
-function ChecklistCore.ClearUserPin(entryID)
-    if _adoptedMappins[entryID] then
-        ChecklistCore.RemoveMappin(entryID)
-    end
-end
+-- NOTE: There is intentionally no user-pin API here. The "Set Pin" waypoint is a
+-- plain manual map waypoint owned by each mod's init.lua (runtimeState), completely
+-- independent of Core's proximity automation. Threading it through Core's mappin
+-- state caused a desync bug class under 0-Engine 1.18.2's aggressive PlayerInvalidated
+-- churn — see decisions/user-pin-decoupled-from-core.
 
 function ChecklistCore.RemoveMappin(entryID)
     local id = _createdMappins[entryID]
     if id then
         Game.GetMappinSystem():UnregisterMappin(id)
         _createdMappins[entryID] = nil
-        _adoptedMappins[entryID] = nil
         _mappinSnapped[entryID]  = nil
     end
 end
@@ -272,7 +226,13 @@ end
 local function RegisterDetectionZone(entry)
     if not _engine or not entry.container_id then return end
 
-    local snapRadius   = (_config and _config.snapRadius) or 20.0
+    -- Zone radius. RTC opts the zone to the live scanner_radius via
+    -- detectionZoneUsesScannerRadius so it polls for the device entity across the
+    -- whole approach (re-read here every RegisterItemSet, so the slider stays live).
+    -- Snap-based mods keep the tight snapRadius default.
+    local snapRadius   = (_config and _config.detectionZoneUsesScannerRadius
+                            and _settings and _settings.scanner_radius)
+                       or (_config and _config.snapRadius) or 20.0
     local lookAtRadius = (_config and _config.lookAtRadius) or 3.0
     local setName      = (_config and _config.setName) or "checklist"
 
@@ -295,6 +255,14 @@ local function RegisterDetectionZone(entry)
             end
         end,
         onTick   = function()
+            -- onZoneTick: unconditional per-tick hook (runs regardless of noAutoSnap
+            -- and the canShow/canMappin gates). RTC uses this to trigger the game's
+            -- own native detection once its PerkTraining entity has streamed in.
+            -- Passed the resolved entity (may be nil until the game streams it).
+            if _config and _config.onZoneTick then
+                _config.onZoneTick(entry, ResolveEntity(entry))
+            end
+
             if _config and _config.noAutoSnap then return end
             if _config and _config.canShow and not _config.canShow(entry) then return end
             if _config and _config.canMappin and not _config.canMappin(entry) then return end
@@ -542,12 +510,7 @@ function ChecklistCore.RegisterItemSet()
             if _config.onItemExit then
                 _config.onItemExit(spatialEntry)
             else
-                -- Sticky behavior: don't auto-remove user pins when the player walks
-                -- out of scanner range. The pin is the player's intentional navigation
-                -- target; only collect / explicit clear should remove it.
-                if not _adoptedMappins[entry.id] then
-                    ChecklistCore.RemoveMappin(entry.id)
-                end
+                ChecklistCore.RemoveMappin(entry.id)
                 ChecklistCore.ClearNotified(entry.id)
             end
         end,
@@ -576,26 +539,9 @@ function ChecklistCore.UnregisterItemSet()
         _spatialHandle = nil
     end
     CancelAllSnapZones()
-
-    -- Preserve adopted mappins (user pins) through the unregister/re-register cycle.
-    -- Game-side mappin handles outlive PlayerInvalidated (vendor opens etc.); keeping
-    -- the tracking entry means the next RegisterItemSet doesn't create a duplicate,
-    -- and the snap zone can update the existing pin's position when the player
-    -- approaches the entry again. Auto-mappins are dropped here as before — pre-existing
-    -- behavior, not addressed by this change.
-    local preservedHandles = {}
-    local preservedAdopted = {}
-    for id, _ in pairs(_adoptedMappins) do
-        if _createdMappins[id] then
-            preservedHandles[id] = _createdMappins[id]
-            preservedAdopted[id] = true
-        end
-    end
-
     _entryMap       = {}
     _nearbyEntries  = {}
-    _createdMappins = preservedHandles
-    _adoptedMappins = preservedAdopted
+    _createdMappins = {}
     _notifiedCache  = {}
     Utils.Log("SpatialSet and detection zones unregistered.")
 end
