@@ -7,11 +7,13 @@ This mod adds a simple, in-game UI to track all 9 Relic Terminals so you never h
 
 [center][img]https://i.imgur.com/WKUrfSX.gif[/img][/center]
 [line]
-[size=5][color=#ffff00][b]New in 2.0.0: The Automation Update[/b][/color][/size]
+[size=5][color=#ffff00][b]New in 3.0.0[/b][/color][/size]
 [list]
-[*][b]Proximity Scanner:[/b] Passively detects uncollected Relic Terminals nearby (50m range) and marks them on your HUD.
-[*][b]Smart Pause:[/b] The scanner automatically pauses during Loading Screens, Fast Travel, and Menus to save performance. It includes a smart "Fade-In" grace period.
-[*][b]Zero-Overhead:[/b] Heavily optimized to ensure it has negligible impact on your FPS.
+[*][color=#e06666][b]New required dependency: 0-Engine.[/b][/color] This version will not run without it. See [b]Requirements[/b] below. Earlier versions did not need it.
+[*][b]Rebuilt scanner:[/b] The proximity scanner now runs on 0-Engine. It reacts to you crossing into range instead of polling on a timer, so there is no CPU cost when you are away from any terminal and detection is tighter up close.
+[*][b]Game's own relic marker:[/b] Terminals now use the game's native relic icon instead of a separate mod icon, and it shows up as soon as the terminal area loads in.
+[*][b]Instant detection:[/b] A terminal is checked off the moment you finish the personal link.
+[*][b]Retroactive tracking:[/b] Terminals you activated before installing now get checked off automatically once you are near them in Dogtown.
 [/list]
 [line]
 [size=5][color=#ffff00][b]Features[/b][/color][/size]
@@ -19,7 +21,7 @@ This mod adds a simple, in-game UI to track all 9 Relic Terminals so you never h
 [*][b]Automatic Tracking[/b]: Passively detects Relic Terminals as you play and checks them off once collected.
 [*][b]In-Game Checklist[/b]: Track or view your progress on all 9 Terminals in Dogtown.
 [*]Progress is saved automatically with your game save (per-character).
-[*]A [b]Settings[/b] tab to configure the new Proximity Scanner (Radius, Interval) and optional [b]Lazy Mode[/b].
+[*]A [b]Settings[/b] tab to configure the Proximity Scanner range and optional [b]Lazy Mode[/b].
 [*]In-game descriptions, closest fast travel points, and location info for every terminal.
 [*]A [b]Set Map Pin[/b] button to create a waypoint to the terminal's location.
 [*]A [b]Teleport[/b] button (in Lazy Mode) to instantly teleport to the terminal.
@@ -33,7 +35,7 @@ This mod adds a simple, in-game UI to track all 9 Relic Terminals so you never h
 [*]The "Relic Terminal Checklist" window will appear.
 [*]Click the checkboxes to mark your progress manually, or let the [b]Proximity Scanner[/b] handle that for you.
 [*][b]Proximity Scanning[/b]: Enable (default) this in the [b]Settings[/b] tab to see nearby items on your HUD as you play.
-[list][*]You can also adjust how frequently the scan occurs (default 3.0s), as well as the range (default 50m).
+[list][*]You can adjust the detection range in the Settings tab (default 50m, adjustable from 25m to 100m). There is no scan interval to set; the scanner is event driven now.
 [/list][/list][*]To save your progress, [b]Quicksave (F5)[/b] or [b]Manual Save[/b] your game. The progress is tied to that save file.
 [line]
 [size=5][color=#ffff00][b]Lazy Mode[/b][/color][/size]
@@ -42,17 +44,23 @@ For those who just want to get it done, you can enable "Lazy Mode" in the Settin
 [color=#e06666][b]WARNING:[/b][/color] Using teleport functions can be risky. It may cause issues with your save or get you stuck. Use at your own risk and always have a recent manual save!
 
 [line]
+[size=5][color=#ffff00][b]Requirements[/b][/color][/size]
+[color=#e06666][b]0-Engine is a new required dependency. Versions before 3.0.0 did not need it. If 0-Engine is not installed the checklist will not run, and you will see a single error line in the CET log.[/b][/color]
+[list]
+[*][b][url=https://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url][/b]
+[*][b][url=https://www.nexusmods.com/cyberpunk2077/mods/27967]0-Engine[/url][/b] (the pure CET-only build, version 1.18.2 or newer). It has its own requirements, listed on its mod page.
+[/list]
+[line]
 [size=5][color=#ffff00][b]Installation[/b][/color][/size]
 [list=1]
-[*]Install with a mod manager (recommended).
-[*]Install [url=https://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url].
+[*]Install [url=https://www.nexusmods.com/cyberpunk2077/mods/27967]0-Engine[/url] and its requirements (above).
+[*]Install this mod with a mod manager (recommended).
 [*]For manual install, download and extract the main file into your Cyberpunk 2077 game directory.
 [/list]
 [line]
 [size=5][color=#ffff00][b]Known Issues[/b][/color][/size]
 [list]
 [*]When you use the "Set Map Pin" button, the breadcrumbs (navigation path) may not appear immediately. You will need to [b]open and close your in-game Map (M)[/b] for the path to appear.
-[*][b]Retroactive Tracking[/b]: Unfortunately, Relic Terminals do not set a unique value in your save file we can just look up once they are collected. The mod cannot retroactively detect terminals you picked up [i]before[/i] installing, but the Proximity Scanner will allow you to quickly verify locations as you get near them.
 [/list]
 [line]
 [size=5][color=#ffff00][b]Inspiration & Credits[/b][/color][/size]
@@ -62,5 +70,11 @@ This mod would not be possible without:
 [list]
 [*][b]yamashi[/b] and the CET team for creating [url=https://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url].
 [*][b]psiberx[/b] for their amazing [url=https://github.com/psiberx/cp2077-cet-kit]CET Kit[/url] and especially the 'GameSession.lua' module, which handles all the per-save-file saving.
+[*][b][url=https://www.nexusmods.com/profile/DigitalVixen?gameId=3333]DigitalVixen[/url][/b] for [url=https://www.nexusmods.com/cyberpunk2077/mods/27967]0-Engine[/url], the reactive runtime this mod is now built on.
 [*]The Cyberpunk 2077 Modding community for all the public documentation and guides.
 [/list]
+
+[line]
+
+[size=5][color=#ffff00][b]Disclaimer[/b][/color][/size]
+This mod was developed with the assistance of an LLM. All in-game testing and code validation was performed by a human. No rogue AIs were permitted through the Blackwall.

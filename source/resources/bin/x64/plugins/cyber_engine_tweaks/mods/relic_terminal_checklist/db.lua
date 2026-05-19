@@ -2,7 +2,7 @@
 -- Mod Name: Relic Terminal Checklist
 -- Author: Spuddeh
 -- Description: Contains coordinates and detailed navigational descriptions.
--- Mod Version: 2.0.1
+-- Mod Version: 3.0.0
 -- ======================================================================================
 
 local RelicTerminalsDB = {

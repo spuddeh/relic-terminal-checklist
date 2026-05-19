@@ -2,7 +2,7 @@
 -- Mod Name: Relic Terminal Checklist
 -- Author: Spuddeh
 -- Description: Tracks all 9 Relic Data Terminals via 0-Engine and TryGrantPerk observer.
--- Mod Version: 2.1.0
+-- Mod Version: 3.0.0
 -- ======================================================================================
 
 local RelicTerminalsDB = require("db")

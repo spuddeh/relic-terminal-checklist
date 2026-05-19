@@ -2,7 +2,7 @@
 -- Mod Name: Relic Terminal Checklist
 -- Author: Spuddeh
 -- Description: RTC-specific automation logic. Delegates shared behaviour to ChecklistCore.
--- Mod Version: 2.1.0
+-- Mod Version: 3.0.0
 -- ======================================================================================
 --
 -- RTC does NOT draw its own proximity mappin. Instead, when the player comes within

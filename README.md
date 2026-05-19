@@ -1,26 +1,37 @@
 # Relic Terminal Checklist
 
-**Relic Terminal Checklist** makes it easy to find all Militech Data Terminals in Dogtown (Phantom Liberty expansion) to fully upgrade your Relic Tree.
+**Relic Terminal Checklist** makes it easy to find every Militech Relic Data Terminal in Dogtown (Phantom Liberty) so you can fully upgrade your Relic skill tree without alt-tabbing to a wiki.
+
+📥 **Download:** [Relic Terminal Checklist on Nexus Mods](https://www.nexusmods.com/cyberpunk2077/mods/25755)
 
 ## 🚀 Features
 
-* **Data Terminal Tracking:** Lists all known Relic Data Terminals.
-* **Proximity Scanner (v2.0):** Passively detects uncollected terminals nearby (50m) and alerts you.
-* **Automatic Tracking:** Marks terminals as collected as you play.
-* **Smart Pause:** Suspend logic during menus/loading for zero overhead.
-* **Map Integration:** Provides precise coordinates for setting Waypoints.
-* **Simple & Lightweight:** Focused purely on location tracking and manual completion.
+* **Data Terminal Tracking:** An in-game checklist of all 9 Relic Data Terminals.
+* **Reactive Detection (v3.0.0):** Built on 0-Engine. The moment you cross into range of an uncollected terminal, the mod triggers the game's own native Relic terminal marker, exactly as if you had discovered it normally. There is no polling timer, so there is no CPU cost when you are away from any terminal.
+* **Automatic Tracking:** Terminals are checked off as you jack into them.
+* **Smart Pause:** Detection is suppressed during loading screens, fast travel, and menus.
+* **Set Pin:** A standalone waypoint button to mark any terminal's exact location on your map.
+* **Per-Character Persistence:** Progress is tied to each save file.
+
+## 📋 Requirements
+
+* **Phantom Liberty** expansion.
+* [Cyber Engine Tweaks](https://www.nexusmods.com/cyberpunk2077/mods/107).
+* [0-Engine](https://www.nexusmods.com/cyberpunk2077/mods/27967) (pure CET-only build). New required dependency as of 3.0.0; it has its own requirements listed on its mod page.
 
 ## 🎮 Usage
 
-1. Open the CET Overlay.
-2. The mod automatically runs the Proximity Scanner in the background (disable in Settings if preferred).
-3. Use the "Relic Terminal Checklist" window to view available terminals.
-4. Click **[Pin]** to highlight the location on your HUD/Map.
-5. Travel to the location and jack in.
-6. Check the box to mark it as complete.
+1. Open the CET overlay.
+2. The proximity scanner runs in the background (toggle it in the Settings tab).
+3. Open the **Relic Terminal Checklist** window to view all terminals.
+4. Click **Set Pin** to drop a waypoint at a terminal's location.
+5. Travel there and jack in. The terminal is checked off automatically.
+6. Adjust the detection range in Settings (default 50m, adjustable 25m to 100m).
 
 ## ⚠️ Notes
 
-* Requires **Phantom Liberty** expansion.
-* Some terminals are hidden in high-verticality areas. Use the map pin feature!
+* Some terminals are in high-verticality areas. Use Set Pin to navigate to them.
+
+## 🤖 Disclaimer
+
+This mod was developed with the assistance of an LLM. All in-game testing and code validation was performed by a human. No rogue AIs were permitted through the Blackwall.

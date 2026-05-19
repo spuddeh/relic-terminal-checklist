@@ -4,13 +4,15 @@ layout.xml
 .projectFiles/
 packed/
 custom_refs.txt
-custom_tweaks.txt
+GraphEditorStates/
 
 # Editor
 .vscode/
 .history/
 *.log
+custom_tweaks.txt
 
 *.zip
 *.xcf
 images/
+CLAUDE.md
