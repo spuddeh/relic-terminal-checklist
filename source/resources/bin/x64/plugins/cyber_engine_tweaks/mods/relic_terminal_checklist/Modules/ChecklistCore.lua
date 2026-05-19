@@ -30,7 +30,10 @@ local _nearbyEntries  = {}   -- id → dbEntry for items currently within scanne
 -- Persist until item collected.
 local _snapZones     = {}   -- id → zone handle (wide radius: entity resolve + mappin snap)
 local _lookAtZones   = {}   -- id → zone handle (tight radius: LookAt gate + checkInventory)
-local _mappinSnapped = {}   -- id → bool (whether mappin has been snapped to entity pos)
+local _mappinSnapped = {}   -- id → bool (static container: position snapped once; resets on zone exit)
+local _entityAttached = {}  -- id → bool (mappin bound to a moving NPC via RegisterMappinWithObject;
+                            -- sticky — engine follows natively, so do NOT re-attach on zone re-entry.
+                            -- Cleared only on RemoveMappin (collect) / UnregisterItemSet.
 
 -- Suppression
 local _wasPaused      = true  -- starts paused; cleared by SetMenuPaused(false) in WhenReady
@@ -185,6 +188,22 @@ function ChecklistCore.CreateMappin(entry, entity)
         or gamedataMappinVariant.CustomPositionVariant
     mappinData.visibleThroughWalls = true
 
+    -- Entity-attached mappin: when an entity is resolved AND the mod opts in via
+    -- config.attachToEntity (CCSC cyberjunkies — moving NPCs), bind the mappin to
+    -- the GameObject so the engine follows it natively (no polling). Slot/offset
+    -- mirror the game's own NPC/device markers (dropPoint.swift, dataTermDevice.swift,
+    -- and the CET mappin-system example: n"poi_mappin" + ~head-height offset).
+    if entity and _config and _config.attachToEntity and _config.attachToEntity(entry) then
+        _createdMappins[entry.id] = Game.GetMappinSystem():RegisterMappinWithObject(
+            mappinData, entity, CName.new("poi_mappin"), Vector3.new(0, 0, 2))
+        if _isDebug then
+            Utils.Log(string.format("[CreateMappin] %s (%s) [attached to entity] | handle=%s",
+                entry.id, entry.name or "?",
+                tostring(_createdMappins[entry.id])), Utils.LogLevel.Debug)
+        end
+        return
+    end
+
     local pos = Vector4.new(entry.coords.x, entry.coords.y, entry.coords.z + 1.0, 1.0)
     if entity then
         pos   = entity:GetWorldPosition()
@@ -213,6 +232,7 @@ function ChecklistCore.RemoveMappin(entryID)
         Game.GetMappinSystem():UnregisterMappin(id)
         _createdMappins[entryID] = nil
         _mappinSnapped[entryID]  = nil
+        _entityAttached[entryID] = nil
     end
 end
 
@@ -275,11 +295,27 @@ local function RegisterDetectionZone(entry)
             local entity = ResolveEntity(entry)
             if not entity then return end
 
-            -- Snap mappin to entity world position via in-place SetMappinPosition.
-            -- Same handle, so any tracked state (and GPS trail the player has triggered
-            -- via map open/close) follows the position update. RemoveMappin + CreateMappin
-            -- would break tracking because re-registration loses the tracked flag.
-            if not _mappinSnapped[entry.id] then
+            if _config and _config.attachToEntity and _config.attachToEntity(entry) then
+                -- Moving NPC (CCSC cyberjunkie): upgrade the static area marker to an
+                -- entity-bound mappin so the engine follows the NPC natively. Re-register
+                -- (Remove + Create) because RegisterMappinWithObject is a different
+                -- registration than the static RegisterMappin. STICKY: guarded by
+                -- _entityAttached (not _mappinSnapped, which resets on zone exit) so
+                -- chasing the NPC in/out of this static zone doesn't re-attach/churn.
+                if not _entityAttached[entry.id] then
+                    ChecklistCore.RemoveMappin(entry.id)
+                    ChecklistCore.CreateMappin(entry, entity)
+                    _entityAttached[entry.id] = true
+                    _mappinSnapped[entry.id]  = true
+                    if _isDebug then
+                        Utils.Log("[SnapZone] Mappin attached to entity: " .. entry.id,
+                            Utils.LogLevel.Debug)
+                    end
+                end
+            elseif not _mappinSnapped[entry.id] then
+                -- Static container: snap the mappin's position in place once.
+                -- Same handle, so any tracked state / GPS trail the player has
+                -- triggered (map open/close) follows the position update.
                 local handle = _createdMappins[entry.id]
                 if handle then
                     local pos = entity:GetWorldPosition()
@@ -362,15 +398,17 @@ local function CancelSnapZone(id)
         _lookAtZones[id]:unregister()
         _lookAtZones[id] = nil
     end
-    _mappinSnapped[id] = nil
+    _mappinSnapped[id]  = nil
+    _entityAttached[id] = nil
 end
 
 local function CancelAllSnapZones()
     for _, handle in pairs(_snapZones) do handle:unregister() end
     for _, handle in pairs(_lookAtZones) do handle:unregister() end
-    _snapZones     = {}
-    _lookAtZones   = {}
-    _mappinSnapped = {}
+    _snapZones      = {}
+    _lookAtZones    = {}
+    _mappinSnapped  = {}
+    _entityAttached = {}
 end
 
 -- ### CONTAINER INVENTORY CHECK (shared by mods whose detection relies on container state) ###
