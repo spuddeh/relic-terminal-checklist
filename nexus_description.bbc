@@ -48,7 +48,7 @@ For those who just want to get it done, you can enable "Lazy Mode" in the Settin
 [color=#e06666][b]0-Engine is a new required dependency. Versions before 3.0.0 did not need it. If 0-Engine is not installed the checklist will not run, and you will see a single error line in the CET log.[/b][/color]
 [list]
 [*][b][url=https://www.nexusmods.com/cyberpunk2077/mods/107]Cyber Engine Tweaks[/url][/b]
-[*][b][url=https://www.nexusmods.com/cyberpunk2077/mods/27967]0-Engine[/url][/b] (the pure CET-only build, version 0.18.3 or newer). It has its own requirements, listed on its mod page.
+[*][b][url=https://www.nexusmods.com/cyberpunk2077/mods/27967]0-Engine[/url][/b] (the pure CET-only build, version 0.18.6 or newer). It has its own requirements, listed on its mod page.
 [/list]
 [line]
 [size=5][color=#ffff00][b]Installation[/b][/color][/size]
