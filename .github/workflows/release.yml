@@ -73,7 +73,7 @@ jobs:
           get() { jq -r --arg a "$ART" ".artifacts[\$a].$1 // empty" release-manifest.json; }
           CONTENT="$(get contentDir)"
           INSTALL="$(get installDir)"
-          FGID="$(get file_group_id)"
+          FILEID="$(get file_id)"
           if [ -z "$CONTENT" ] || [ ! -d "$CONTENT" ]; then
             echo "::error::contentDir '$CONTENT' for artifact '$ART' is missing."
             exit 1
@@ -82,8 +82,8 @@ jobs:
             echo "::error::installDir for artifact '$ART' is not set."
             exit 1
           fi
-          if echo "$FGID" | grep -q "REPLACE_WITH"; then
-            echo "::error::file_group_id for '$ART' is still a placeholder. Set it in release-manifest.json (Files tab > API Info on the mod page)."
+          if echo "$FILEID" | grep -q "REPLACE_WITH"; then
+            echo "::error::file_id for '$ART' is still a placeholder. Set it in release-manifest.json (Files tab > API Info on the mod page)."
             exit 1
           fi
           BASENAME="$(get fileBaseName)"
@@ -91,11 +91,12 @@ jobs:
           {
             echo "content_dir=$CONTENT"
             echo "install_dir=$INSTALL"
-            echo "file_group_id=$FGID"
-            echo "file_category=$(get file_category)"
+            echo "file_id=$FILEID"
+            echo "category=$(get category)"
             echo "display_name=$(get displayName)"
             echo "file_base_name=$BASENAME"
             echo "primary=$(jq -r --arg a "$ART" '.artifacts[$a].primary_mod_manager_download // false' release-manifest.json)"
+            echo "show_reqs=$(jq -r --arg a "$ART" '.artifacts[$a].show_requirements_pop_up // true' release-manifest.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build zip
@@ -121,15 +122,16 @@ jobs:
         run: gh release upload "${{ steps.meta.outputs.tag }}" "${{ steps.zip.outputs.zip }}" --clobber
 
       - name: Upload to Nexus Mods
-        uses: Nexus-Mods/upload-action@v1.0.0-beta.6
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.8
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
-          file_group_id: ${{ steps.art.outputs.file_group_id }}
+          file_id: ${{ steps.art.outputs.file_id }}
           filename: ${{ steps.zip.outputs.zip }}
           version: ${{ steps.meta.outputs.version }}
           display_name: ${{ steps.art.outputs.display_name }}
           description: ${{ github.event.release.body }}
-          file_category: ${{ steps.art.outputs.file_category }}
-          archive_existing_file: true
+          category: ${{ steps.art.outputs.category }}
+          archive_existing_version: true
           allow_mod_manager_download: true
           primary_mod_manager_download: ${{ steps.art.outputs.primary }}
+          show_requirements_pop_up: ${{ steps.art.outputs.show_reqs }}

@@ -19,9 +19,11 @@ so `bin/...` lands at the zip root exactly as the game expects.
 1. **API key (secret).** Create a Nexus personal API key at
    <https://www.nexusmods.com/settings/api-keys> and add it as the repository secret
    **`NEXUSMODS_API_KEY`** (Settings > Secrets and variables > Actions).
-2. **File group ID (manifest).** On the mod page, open the **Files** tab > **API Info** (or the
-   Manage Files edit menu) to get the file group ID, then replace the `REPLACE_WITH_RTC_FILE_GROUP_ID`
-   placeholder in `release-manifest.json`. File group IDs are not secret, so they live in the manifest.
+2. **File ID (manifest).** On the mod page, open the **Files** tab > **API Info** (or the Manage
+   Files edit menu) to get the file ID, then replace the `REPLACE_WITH_RTC_FILE_GROUP_ID` placeholder
+   in `release-manifest.json` (the `file_id` field). Nexus still labels this value **"Group ID"** on
+   the page, but it is what the upload action's `file_id` input wants. File IDs are not secret, so
+   they live in the manifest.
 
 ## Cutting a new release
 
@@ -47,6 +49,10 @@ You can also run it manually from the **Actions** tab (workflow_dispatch) with `
 ## Notes
 
 - The Nexus upload uses [`Nexus-Mods/upload-action`](https://github.com/Nexus-Mods/upload-action),
-  pinned to `v1.0.0-beta.6`. Nexus currently labels this upload API **evaluation only**, so it may
-  change; bump the pin when a stable release appears.
-- `archive_existing_file: true` archives the previous file when a new version is uploaded.
+  pinned to `v1.0.0-beta.8` (the Nexus v3 upload API). beta.8's `createModFileVersion` endpoint
+  replaces the old `createUpdateGroupVersion`, which Nexus **removes on 2026-09-09** — so this pin
+  is required to keep uploading after that date. This API is still labelled evaluation-only, so bump
+  the pin when a stable release appears (watch for further input renames).
+- `archive_existing_version: true` archives the previous file when a new version is uploaded.
+- `show_requirements_pop_up: true` shows the requirements popup on download (this mod requires CET
+  and 0-Engine).
