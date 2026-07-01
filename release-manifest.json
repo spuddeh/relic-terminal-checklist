@@ -1,0 +1,18 @@
+{
+  "$schema_note": "Maps release artifacts to their Nexus Mods targets. To publish, create a GitHub Release tagged '<artifact>-v<version>' (e.g. rtc-v3.0.0). The release.yml workflow parses the tag, stages contentDir into installDir, zips it as '<fileBaseName>_v<version>.zip' (so 'bin/...' sits at the zip root), attaches the zip to the release, and uploads to Nexus via Nexus-Mods/upload-action. See RELEASING.md.",
+  "$paths_note": "contentDir = repo folder whose CONTENTS ship. installDir = path inside the zip those contents are placed at (the in-game install path under the Cyberpunk root). fileBaseName = the download filename stem (version is appended).",
+  "$file_group_id_note": "file_group_id is per-FILE, not per-mod-page (and NOT secret). Find it on the mod's Files tab > 'API Info' (or the Manage Files edit menu). Replace the REPLACE_WITH placeholder before the first real release.",
+  "artifacts": {
+    "rtc": {
+      "displayName": "Relic Terminal Checklist",
+      "fileBaseName": "relic_terminal_checklist",
+      "contentDir": "relic_terminal_checklist",
+      "installDir": "bin/x64/plugins/cyber_engine_tweaks/mods/relic_terminal_checklist",
+      "nexus_mod_id": 25755,
+      "file_group_id": "REPLACE_WITH_RTC_FILE_GROUP_ID",
+      "file_category": "main",
+      "primary_mod_manager_download": true,
+      "currentVersion": "3.0.0"
+    }
+  }
+}

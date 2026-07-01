@@ -1,0 +1,135 @@
+name: Release
+
+# Publishes a single artifact (the main mod or one preset) to GitHub Releases
+# and Nexus Mods. Trigger by publishing a GitHub Release whose tag follows the
+# convention "<artifact>-v<version>" (e.g. slm-v1.6.0, konpeki-v1.1.0). The
+# artifact id must exist in release-manifest.json. See RELEASING.md.
+#
+# Backfilled/historical releases created by scripts/backfill-releases.ps1 carry
+# an invisible "<!-- skip-nexus -->" marker in their body and are skipped here
+# (they already ship their correct historical zip and are already on Nexus).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      artifact:
+        description: "Artifact id from release-manifest.json (e.g. slm, konpeki, jnve)"
+        required: true
+      version:
+        description: "Version string (e.g. 1.6.0)"
+        required: true
+      tag:
+        description: "Existing release tag to attach the zip to (optional; leave blank to skip GitHub asset upload)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.event.inputs.tag || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Skip backfilled/manual GitHub-only releases (marked invisibly in the body).
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.release.body, '<!-- skip-nexus -->') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve artifact and version
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ART="${{ github.event.inputs.artifact }}"
+            VER="${{ github.event.inputs.version }}"
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+            # Split on the first "-v": "<artifact>-v<version>"
+            ART="${TAG%%-v*}"
+            VER="${TAG#*-v}"
+          fi
+          if [ -z "$ART" ] || [ -z "$VER" ]; then
+            echo "::error::Could not resolve artifact/version (tag '$TAG'). Expected '<artifact>-v<version>'."
+            exit 1
+          fi
+          echo "artifact=$ART" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved artifact='$ART' version='$VER' tag='$TAG'"
+
+      - name: Look up artifact in manifest
+        id: art
+        run: |
+          ART='${{ steps.meta.outputs.artifact }}'
+          if ! jq -e --arg a "$ART" '.artifacts[$a]' release-manifest.json >/dev/null; then
+            echo "::error::Artifact '$ART' not found in release-manifest.json"
+            exit 1
+          fi
+          get() { jq -r --arg a "$ART" ".artifacts[\$a].$1 // empty" release-manifest.json; }
+          CONTENT="$(get contentDir)"
+          INSTALL="$(get installDir)"
+          FGID="$(get file_group_id)"
+          if [ -z "$CONTENT" ] || [ ! -d "$CONTENT" ]; then
+            echo "::error::contentDir '$CONTENT' for artifact '$ART' is missing."
+            exit 1
+          fi
+          if [ -z "$INSTALL" ]; then
+            echo "::error::installDir for artifact '$ART' is not set."
+            exit 1
+          fi
+          if echo "$FGID" | grep -q "REPLACE_WITH"; then
+            echo "::error::file_group_id for '$ART' is still a placeholder. Set it in release-manifest.json (Files tab > API Info on the mod page)."
+            exit 1
+          fi
+          BASENAME="$(get fileBaseName)"
+          [ -z "$BASENAME" ] && BASENAME="$ART"   # fall back to the artifact id
+          {
+            echo "content_dir=$CONTENT"
+            echo "install_dir=$INSTALL"
+            echo "file_group_id=$FGID"
+            echo "file_category=$(get file_category)"
+            echo "display_name=$(get displayName)"
+            echo "file_base_name=$BASENAME"
+            echo "primary=$(jq -r --arg a "$ART" '.artifacts[$a].primary_mod_manager_download // false' release-manifest.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build zip
+        id: zip
+        run: |
+          ZIP="${{ steps.art.outputs.file_base_name }}_v${{ steps.meta.outputs.version }}.zip"
+          CONTENT='${{ steps.art.outputs.content_dir }}'
+          INSTALL='${{ steps.art.outputs.install_dir }}'
+          # Stage contentDir's contents into the in-game install path, then zip the stage
+          # so "bin/..." sits at the zip root exactly as Cyberpunk expects.
+          STAGE="$(mktemp -d)"
+          mkdir -p "$STAGE/$INSTALL"
+          cp -r "$CONTENT/." "$STAGE/$INSTALL/"
+          ( cd "$STAGE" && zip -r -X "$GITHUB_WORKSPACE/$ZIP" . -x '*/.git/*' '*/.DS_Store' )
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "Built $ZIP:"
+          unzip -l "$ZIP"
+
+      - name: Attach zip to GitHub release
+        if: ${{ github.event_name == 'release' || github.event.inputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.meta.outputs.tag }}" "${{ steps.zip.outputs.zip }}" --clobber
+
+      - name: Upload to Nexus Mods
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.6
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_group_id: ${{ steps.art.outputs.file_group_id }}
+          filename: ${{ steps.zip.outputs.zip }}
+          version: ${{ steps.meta.outputs.version }}
+          display_name: ${{ steps.art.outputs.display_name }}
+          description: ${{ github.event.release.body }}
+          file_category: ${{ steps.art.outputs.file_category }}
+          archive_existing_file: true
+          allow_mod_manager_download: true
+          primary_mod_manager_download: ${{ steps.art.outputs.primary }}
