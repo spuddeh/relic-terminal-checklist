@@ -9,7 +9,7 @@
       "contentDir": "relic_terminal_checklist",
       "installDir": "bin/x64/plugins/cyber_engine_tweaks/mods/relic_terminal_checklist",
       "nexus_mod_id": 25755,
-      "file_group_id": "REPLACE_WITH_RTC_FILE_GROUP_ID",
+      "file_group_id": "2887090",
       "file_category": "main",
       "primary_mod_manager_download": true,
       "currentVersion": "3.0.0"
