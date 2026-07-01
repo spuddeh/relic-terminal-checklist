@@ -121,6 +121,35 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ steps.meta.outputs.tag }}" "${{ steps.zip.outputs.zip }}" --clobber
 
+      # Nexus file description is opt-in and capped at 255 chars. Put a
+      # "<!-- nexus-description-end -->" marker (on its own line) in the release
+      # body; everything BEFORE it becomes the file description. No marker, or
+      # nothing before it => no file description is sent. Over 255 chars is
+      # truncated at a word boundary as a safety net (with a warning).
+      - name: Build Nexus file description (opt-in via marker, <=255 chars)
+        id: desc
+        env:
+          BODY: ${{ github.event.release.body }}
+        run: |
+          MARKER='<!-- nexus-description-end -->'
+          DESC=""
+          if printf '%s' "$BODY" | grep -qF "$MARKER"; then
+            DESC="$(printf '%s' "$BODY" | awk -v m="$MARKER" '{i=index($0,m); if(i){if(i>1)print substr($0,1,i-1); exit} print}')"
+            # strip HTML comments, then trim leading/trailing blank lines
+            DESC="$(printf '%s' "$DESC" | sed 's/<!--[^>]*-->//g' | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac)"
+          fi
+          if [ -n "$DESC" ]; then
+            if [ "$(printf '%s' "$DESC" | wc -m)" -gt 255 ]; then
+              DESC="$(printf '%s' "$DESC" | cut -c1-250)"
+              DESC="${DESC% *}…"
+              echo "::warning::Nexus file description exceeded 255 chars; truncated at a word boundary. Shorten the text before '$MARKER'."
+            fi
+            echo "Nexus file description set ($(printf '%s' "$DESC" | wc -m) chars)."
+          else
+            echo "No '$MARKER' content found; leaving the Nexus file description unset."
+          fi
+          { echo "value<<__DESC_EOF__"; printf '%s\n' "$DESC"; echo "__DESC_EOF__"; } >> "$GITHUB_OUTPUT"
+
       - name: Upload to Nexus Mods
         uses: Nexus-Mods/upload-action@v1.0.0-beta.8
         with:
@@ -129,7 +158,7 @@ jobs:
           filename: ${{ steps.zip.outputs.zip }}
           version: ${{ steps.meta.outputs.version }}
           display_name: ${{ steps.art.outputs.display_name }}
-          description: ${{ github.event.release.body }}
+          description: ${{ steps.desc.outputs.value }}
           category: ${{ steps.art.outputs.category }}
           archive_existing_version: true
           allow_mod_manager_download: true
