@@ -8,10 +8,10 @@
 -- RTC does NOT draw its own proximity mappin. Instead, when the player comes within
 -- scanner_radius and the PerkTraining device entity has streamed in, RTC triggers the
 -- game's OWN native detection (PerkTrainingControllerPS:SetDeviceAsDetected +
--- PerkTraining:TryShowMappin). The game then owns the relic mappin entirely — show
--- AND teardown-on-grant. This removes the whole custom-mappin / canMappin /
--- _detectedCache / OnAreaEnter-observer layer that previous iterations needed.
--- Proven in-game 2026-05-19 (WasDetected false→true, native icon appeared, automation off).
+-- PerkTraining:TryShowMappin). The game then owns the relic mappin entirely: show
+-- AND teardown-on-grant. Core is therefore wired with a constant-false canMappin gate
+-- (see below) so it never draws a mappin of its own, and the proximity zone is used
+-- only for the "approaching terminal" notification.
 -- ======================================================================================
 
 local Automation        = {}

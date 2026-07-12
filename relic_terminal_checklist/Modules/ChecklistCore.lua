@@ -5,7 +5,6 @@
 --              Handles SpatialSet lifecycle, mappin management, suppression state,
 --              notification queuing, and item status. All mod-specific values
 --              (setName, mappinVariant, callbacks) are injected via Core.Init().
---              This file is byte-identical across all four checklist mods.
 -- ======================================================================================
 
 local ChecklistCore = {}
@@ -43,8 +42,8 @@ local _unpauseTime    = 0     -- os.clock() timestamp; future value = teleport c
 local _scanTimerHandle = nil  -- deferred post-grace Scan() handle
 
 -- Mappin tracking. This is ONLY the proximity auto-mappin. The user "Set Pin"
--- waypoint is owned entirely by each mod's init.lua and never enters Core — that
--- decoupling is deliberate (see decisions/user-pin-decoupled-from-core).
+-- waypoint is owned entirely by each mod's init.lua and never enters Core; that
+-- decoupling is deliberate.
 local _createdMappins = {}    -- id → proximity auto-mappin handle
 local _notifiedCache  = {}
 
@@ -189,7 +188,7 @@ function ChecklistCore.CreateMappin(entry, entity)
     mappinData.visibleThroughWalls = true
 
     -- Entity-attached mappin: when an entity is resolved AND the mod opts in via
-    -- config.attachToEntity (CCSC cyberjunkies — moving NPCs), bind the mappin to
+    -- config.attachToEntity (for mods whose targets are moving NPCs), bind the mappin to
     -- the GameObject so the engine follows it natively (no polling). Slot/offset
     -- mirror the game's own NPC/device markers (dropPoint.swift, dataTermDevice.swift,
     -- and the CET mappin-system example: n"poi_mappin" + ~head-height offset).
@@ -220,11 +219,10 @@ function ChecklistCore.CreateMappin(entry, entity)
     end
 end
 
--- NOTE: There is intentionally no user-pin API here. The "Set Pin" waypoint is a
--- plain manual map waypoint owned by each mod's init.lua (runtimeState), completely
--- independent of Core's proximity automation. Threading it through Core's mappin
--- state caused a desync bug class under 0-Engine 1.18.2's aggressive PlayerInvalidated
--- churn — see decisions/user-pin-decoupled-from-core.
+-- Do NOT add a user-pin API here. The "Set Pin" waypoint is a plain manual map waypoint
+-- owned by each mod's init.lua (runtimeState), completely independent of Core's proximity
+-- automation. Threading it through Core's mappin state desyncs the two under 0-Engine's
+-- PlayerInvalidated churn.
 
 function ChecklistCore.RemoveMappin(entryID)
     local id = _createdMappins[entryID]
@@ -246,8 +244,8 @@ end
 local function RegisterDetectionZone(entry)
     if not _engine or not entry.container_id then return end
 
-    -- Zone radius. RTC opts the zone to the live scanner_radius via
-    -- detectionZoneUsesScannerRadius so it polls for the device entity across the
+    -- Zone radius. A mod can widen the zone to the live scanner_radius via
+    -- detectionZoneUsesScannerRadius, so it polls for the device entity across the
     -- whole approach (re-read here every RegisterItemSet, so the slider stays live).
     -- Snap-based mods keep the tight snapRadius default.
     local snapRadius   = (_config and _config.detectionZoneUsesScannerRadius
@@ -258,8 +256,8 @@ local function RegisterDetectionZone(entry)
 
     -- Snap zone: mappin creation + entity-position snap (default behaviour).
     -- Mods may override via onSnapEnter/onSnapExit callbacks and opt out of the
-    -- default snap via config.noAutoSnap (e.g. RTC, where the game's own native
-    -- mappin takes over inside the snap radius so we HIDE ours there).
+    -- default snap via config.noAutoSnap (for mods whose target the game marks natively:
+    -- the native mappin takes over inside the snap radius, so we HIDE ours there).
     local snapHandle
     snapHandle = _engine.RegisterZone({
         id       = setName .. "_snap_" .. entry.id,
@@ -276,8 +274,8 @@ local function RegisterDetectionZone(entry)
         end,
         onTick   = function()
             -- onZoneTick: unconditional per-tick hook (runs regardless of noAutoSnap
-            -- and the canShow/canMappin gates). RTC uses this to trigger the game's
-            -- own native detection once its PerkTraining entity has streamed in.
+            -- and the canShow/canMappin gates). Use it to trigger the game's own native
+            -- detection once the target entity has streamed in.
             -- Passed the resolved entity (may be nil until the game streams it).
             if _config and _config.onZoneTick then
                 _config.onZoneTick(entry, ResolveEntity(entry))
@@ -296,7 +294,7 @@ local function RegisterDetectionZone(entry)
             if not entity then return end
 
             if _config and _config.attachToEntity and _config.attachToEntity(entry) then
-                -- Moving NPC (CCSC cyberjunkie): upgrade the static area marker to an
+                -- Moving NPC: upgrade the static area marker to an
                 -- entity-bound mappin so the engine follows the NPC natively. Re-register
                 -- (Remove + Create) because RegisterMappinWithObject is a different
                 -- registration than the static RegisterMappin. STICKY: guarded by
@@ -370,7 +368,7 @@ local function RegisterDetectionZone(entry)
                     ChecklistCore.SetItemStatus(entry.id, true)
                     if _config.onAutoCollect then _config.onAutoCollect(entry) end
                 elseif result == true then
-                    -- Shard confirmed present; further LookAt polling is redundant.
+                    -- Target confirmed present; further LookAt polling is redundant.
                     -- OnInventoryItemAdded handles the actual loot event.
                     local h = _lookAtZones[entry.id]
                     if h then
@@ -427,8 +425,8 @@ function ChecklistCore.MakeKeyLookup(tdbidStrings)
     return keys
 end
 
--- Uses Inspector's proven pattern: fetch TransactionSystem inside, pcall the call,
--- handle the multi-return variant (CET may place the item list in either slot).
+-- Fetch TransactionSystem inside and pcall the call: CET may place the item list in
+-- either return slot, so both are handled.
 function ChecklistCore.ContainerContainsAny(entity, keys)
     if not entity then return nil end
     local trans = Game.GetTransactionSystem()
@@ -528,11 +526,11 @@ function ChecklistCore.RegisterItemSet()
             _nearbyEntries[entry.id] = entry  -- always track, even during suppression
             if ChecklistCore.IsSuppressed() then return end
             -- canShow: full gate (mappin + notification). Used for entries that
-            -- shouldn't be revealed at all yet (CSC/CCSC quest_fact / spawn_fact).
+            -- shouldn't be revealed at all yet, e.g. gated on a quest or spawn fact.
             if _config.canShow and not _config.canShow(entry) then return end
-            -- canMappin: narrower gate, mappin only. onItemEnter still fires so
-            -- the mod can notify even when the icon is suppressed (RTC, where the
-            -- game's native mappin takes over after trigger crossing).
+            -- canMappin: narrower gate, mappin only. onItemEnter still fires, so the mod
+            -- can notify even when the icon is suppressed (for targets whose native mappin
+            -- takes over after the trigger crossing).
             if not (_config.canMappin and not _config.canMappin(entry)) then
                 if not _createdMappins[entry.id] then
                     ChecklistCore.CreateMappin(entry, nil)

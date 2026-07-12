@@ -1,9 +1,8 @@
 -- ======================================================================================
--- SettingsUI.lua  (canonical: _shared/checklist/)
+-- SettingsUI.lua
 -- Author: Spuddeh
--- Description: Shared settings panel for the Checklist mod family — automation toggle,
+-- Description: Shared settings panel for the Checklist mod family: automation toggle,
 --              scanner radius slider with debounce, drawCustomSettings callback.
---              Deployed byte-identical to each mod.
 -- ======================================================================================
 
 local SettingsUI = {}
@@ -66,8 +65,8 @@ function SettingsUI.Draw(settings, _runtimeState, callbacks)
     ImGui.TextWrapped("Enables 'Teleport' buttons.")
 
     ImGui.Spacing()
-    -- Clear Last Map Pin Button. Each mod provides onClearAllPins because the pin
-    -- model differs (entry-coords adopted pin vs. standalone gig pin handle, etc.).
+    -- Clear Last Map Pin Button. Each mod must provide onClearAllPins: the pin model
+    -- differs per mod, so Core cannot clear it generically.
     if ImGui.Button(IconGlyphs.MapMarkerOff .. " Clear Last Map Pin") then
         if callbacks.onClearAllPins then
             callbacks.onClearAllPins()

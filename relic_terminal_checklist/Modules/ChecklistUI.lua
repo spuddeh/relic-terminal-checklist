@@ -1,8 +1,8 @@
 -- ======================================================================================
--- ChecklistUI.lua  (canonical: _shared/checklist/)
+-- ChecklistUI.lua
 -- Author: Spuddeh
--- Description: Shared ImGui rendering for the Checklist mod family — TabBar, list,
---              detail view, drawCustomActions callback. Deployed byte-identical to each mod.
+-- Description: Shared ImGui rendering for the Checklist mod family: TabBar, list,
+--              detail view, drawCustomActions callback.
 -- ======================================================================================
 
 local ChecklistUI = {}
@@ -55,16 +55,13 @@ end
 -- @param db (table) Database table (list of {category=..., entries={...}})
 -- @param progress (table) Progress table { id = boolean }
 -- @param settings (table) Settings table { lazy_mode = boolean }
--- @param settings (table) Settings table { lazy_mode = boolean }
 -- @param callbacks (table) Action callbacks { onToggle=fn(id, val), onAction=fn(action, entry) }
 -- @param checklist_mode (string) "manual" or "automatic" (default: "manual" if unspecified)
 function ChecklistUI.Draw(title, open, db, progress, settings, callbacks, checklist_mode)
     if not open then return end
 
-    -- Default mode to manual if not provided, for backward compatibility with other mods
-    -- unless implied otherwise. But user requested:
-    -- "if automatic, disabled. if manual, enabled."
-    -- Let's assume checklist_mode comes in as string.
+    -- Checkboxes are read-only in "automatic" mode and editable in "manual". Callers that
+    -- pass nothing get "manual".
     local mode = checklist_mode or "manual"
 
     -- Set default size

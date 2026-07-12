@@ -1,8 +1,8 @@
 -- ======================================================================================
--- Mod Name: Perk Shard Checklist
+-- Module: Checklist Shared Utils
 -- Author: Spuddeh
--- Description: Shared utility functions and constants for Checklist Mods
--- Mod Version: 2.0.2
+-- Description: Shared utility functions and constants for the Checklist mods.
+-- Module Version: 2.0.2
 -- ======================================================================================
 
 local Utils = {}
