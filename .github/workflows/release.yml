@@ -1,13 +1,24 @@
 name: Release
 
-# Publishes a single artifact (the main mod or one preset) to GitHub Releases
-# and Nexus Mods. Trigger by publishing a GitHub Release whose tag follows the
-# convention "<artifact>-v<version>" (e.g. slm-v1.6.0, konpeki-v1.1.0). The
-# artifact id must exist in release-manifest.json. See RELEASING.md.
+# CANONICAL COPY: MyMods/_shared/release/release.yml
+# Copied verbatim into every mod repo that publishes to Nexus. It is artifact-agnostic —
+# release-manifest.json drives it — so the copies MUST stay byte-identical. They drifted once
+# (NCZoningCore's copy carried the "file_id does not exist until the first manual upload"
+# caveat and the other six did not), which is how a shared file loses the one thing worth
+# knowing about it. Edit here, then redeploy to each consumer.
 #
-# Backfilled/historical releases created by scripts/backfill-releases.ps1 carry
-# an invisible "<!-- skip-nexus -->" marker in their body and are skipped here
-# (they already ship their correct historical zip and are already on Nexus).
+# Publishes a single artifact (the main mod, or one preset) to GitHub Releases and Nexus Mods.
+# Trigger by publishing a GitHub Release whose tag follows "<artifact>-v<version>"
+# (e.g. slm-v1.6.0, konpeki-v1.1.0). The artifact id must exist in release-manifest.json.
+# See RELEASING.md.
+#
+# THE FIRST NEXUS UPLOAD MUST BE DONE BY HAND. A file_id does not exist until a file has been
+# uploaded to the mod page once — so this workflow can publish a mod's UPDATES, never its first
+# file. Until the id is set it hard-fails rather than uploading into the void.
+#
+# Backfilled/historical releases created by scripts/backfill-releases.ps1 carry an invisible
+# "<!-- skip-nexus -->" marker in their body and are skipped here (they are already on Nexus,
+# and they attach their true historical zip rather than a rebuild).
 
 on:
   release:
@@ -62,6 +73,46 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved artifact='$ART' version='$VER' tag='$TAG'"
 
+      # The Nexus file id lives in a REPOSITORY VARIABLE, not in the repo.
+      #
+      #   Variable name:  NEXUS_FILE_ID_<ARTIFACT>   (uppercased, '-' -> '_')
+      #   e.g. artifact "slm" -> NEXUS_FILE_ID_SLM ; "sprintware" -> NEXUS_FILE_ID_SPRINTWARE
+      #
+      # A VARIABLE, not a secret: the id is public (it is printed on the mod page), and masking it
+      # would only make a bad id harder to debug. It lives outside the repo because it does not
+      # exist until the first manual upload, so committing a placeholder means committing a lie.
+      #
+      # release-manifest.json's `file_id` is still honoured as a FALLBACK, so repos that have not
+      # migrated keep working. The variable wins where both are set.
+      - name: Resolve Nexus file_id (repo variable first, manifest as fallback)
+        id: fid
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          ART: ${{ steps.meta.outputs.artifact }}
+        run: |
+          KEY="NEXUS_FILE_ID_$(printf '%s' "$ART" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_' )"
+          KEY="${KEY%_}"
+          FROM_VAR="$(printf '%s' "$VARS_JSON" | jq -r --arg k "$KEY" '.[$k] // empty')"
+          FROM_MANIFEST="$(jq -r --arg a "$ART" '.artifacts[$a].file_id // empty' release-manifest.json)"
+
+          if [ -n "$FROM_VAR" ]; then
+            FILEID="$FROM_VAR"; SRC="repository variable $KEY"
+          else
+            FILEID="$FROM_MANIFEST"; SRC="release-manifest.json (fallback)"
+          fi
+
+          if [ -z "$FILEID" ] || echo "$FILEID" | grep -q "REPLACE_WITH"; then
+            echo "::error::No Nexus file_id for artifact '$ART'."
+            echo "::error::A file_id DOES NOT EXIST until the mod's first file has been uploaded to Nexus BY HAND."
+            echo "::error::Upload that first file manually, then read the id off the mod page (Files tab > API Info —"
+            echo "::error::Nexus labels it 'Group ID'), and set the repository variable '$KEY'"
+            echo "::error::(Settings > Secrets and variables > Actions > Variables). Do NOT use the file_id from the"
+            echo "::error::public v1 API — that is a different id space and the wrong value looks entirely plausible."
+            exit 1
+          fi
+          echo "Using file_id from $SRC"
+          echo "file_id=$FILEID" >> "$GITHUB_OUTPUT"
+
       - name: Look up artifact in manifest
         id: art
         run: |
@@ -73,7 +124,6 @@ jobs:
           get() { jq -r --arg a "$ART" ".artifacts[\$a].$1 // empty" release-manifest.json; }
           CONTENT="$(get contentDir)"
           INSTALL="$(get installDir)"
-          FILEID="$(get file_id)"
           if [ -z "$CONTENT" ] || [ ! -d "$CONTENT" ]; then
             echo "::error::contentDir '$CONTENT' for artifact '$ART' is missing."
             exit 1
@@ -82,16 +132,11 @@ jobs:
             echo "::error::installDir for artifact '$ART' is not set."
             exit 1
           fi
-          if echo "$FILEID" | grep -q "REPLACE_WITH"; then
-            echo "::error::file_id for '$ART' is still a placeholder. Set it in release-manifest.json (Files tab > API Info on the mod page)."
-            exit 1
-          fi
           BASENAME="$(get fileBaseName)"
           [ -z "$BASENAME" ] && BASENAME="$ART"   # fall back to the artifact id
           {
             echo "content_dir=$CONTENT"
             echo "install_dir=$INSTALL"
-            echo "file_id=$FILEID"
             echo "category=$(get category)"
             echo "display_name=$(get displayName)"
             echo "file_base_name=$BASENAME"
@@ -105,8 +150,8 @@ jobs:
           ZIP="${{ steps.art.outputs.file_base_name }}_v${{ steps.meta.outputs.version }}.zip"
           CONTENT='${{ steps.art.outputs.content_dir }}'
           INSTALL='${{ steps.art.outputs.install_dir }}'
-          # Stage contentDir's contents into the in-game install path, then zip the stage
-          # so "bin/..." sits at the zip root exactly as Cyberpunk expects.
+          # Stage contentDir's contents into the in-game install path, then zip the stage so the
+          # install path ("bin/...", "r6/...", ...) sits at the zip root exactly as the game expects.
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/$INSTALL"
           cp -r "$CONTENT/." "$STAGE/$INSTALL/"
@@ -154,7 +199,7 @@ jobs:
         uses: Nexus-Mods/upload-action@v1.0.0-beta.8
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
-          file_id: ${{ steps.art.outputs.file_id }}
+          file_id: ${{ steps.fid.outputs.file_id }}
           filename: ${{ steps.zip.outputs.zip }}
           version: ${{ steps.meta.outputs.version }}
           display_name: ${{ steps.art.outputs.display_name }}

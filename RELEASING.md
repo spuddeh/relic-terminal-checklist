@@ -16,14 +16,34 @@ so `bin/...` lands at the zip root exactly as the game expects.
 
 ## One-time setup
 
-1. **API key (secret).** Create a Nexus personal API key at
+1. **API key — a real secret.** Create a Nexus personal API key at
    <https://www.nexusmods.com/settings/api-keys> and add it as the repository secret
-   **`NEXUSMODS_API_KEY`** (Settings > Secrets and variables > Actions).
-2. **File ID (manifest).** On the mod page, open the **Files** tab > **API Info** (or the Manage
-   Files edit menu) to get the file ID, then replace the `REPLACE_WITH_RTC_FILE_GROUP_ID` placeholder
-   in `release-manifest.json` (the `file_id` field). Nexus still labels this value **"Group ID"** on
-   the page, but it is what the upload action's `file_id` input wants. File IDs are not secret, so
-   they live in the manifest.
+   **`NEXUSMODS_API_KEY`** (Settings > Secrets and variables > Actions > **Secrets**).
+
+2. **File id — a repository VARIABLE, not a secret, and not in this repo.**
+
+   | Artifact | Variable |
+   | --- | --- |
+   | `rtc` | **`NEXUS_FILE_ID_RTC`** |
+
+   Set them under Settings > Secrets and variables > Actions > **Variables**.
+
+   > **The first Nexus upload must be done BY HAND.** A `file_id` does not exist until a file has
+   > been uploaded to the mod page once — so this pipeline can publish a mod's **updates**, never its
+   > **first** file. That is also why the id is not committed: before the first upload there is nothing
+   > to commit but a lie. Until the variable is set, the workflow hard-fails rather than uploading into
+   > the void.
+   >
+   > **Where to get it:** the mod page's **Files** tab > **API Info** (or the Manage Files edit menu),
+   > where Nexus still labels it **"Group ID"**. It is only visible to you, as the mod's author.
+   >
+   > **Do NOT take it from the public v1 API.** That endpoint has a field also called `file_id`, it is a
+   > **different id space**, and the wrong value looks entirely plausible — it fails only at release time.
+   >
+   > **Why a variable and not a secret:** it is an identifier, not a credential. It authorizes nothing
+   > without `NEXUSMODS_API_KEY`, and anyone holding that key could enumerate the ids anyway. Masking it
+   > as a secret would buy no safety and would render it `***` in the logs — making a wrong id, the one
+   > mistake that is actually easy to make here, much harder to diagnose.
 
 ## Cutting a new release
 
