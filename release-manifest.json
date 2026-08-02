@@ -1,7 +1,8 @@
 {
-  "$schema_note": "Maps release artifacts to their Nexus Mods targets. To publish, create a GitHub Release tagged '<artifact>-v<version>' (e.g. rtc-v3.0.0). The release.yml workflow parses the tag, stages contentDir into installDir, zips it as '<fileBaseName>_v<version>.zip' (so 'bin/...' sits at the zip root), attaches the zip to the release, and uploads to Nexus via Nexus-Mods/upload-action (beta.8, v3 upload API). See RELEASING.md.",
+  "$schema_note": "Maps release artifacts to their Nexus Mods targets. To publish, create a GitHub Release tagged '<artifact>-v<version>' (e.g. rtc-v3.0.0). The release.yml workflow parses the tag, stages contentDir into installDir, zips it as '<fileBaseName>_v<version>.zip' (so 'bin/...' sits at the zip root), attaches the zip to the release, and uploads to Nexus via Nexus-Mods/upload-action (beta.10, v3 upload API). See RELEASING.md.",
   "$paths_note": "contentDir = repo folder whose CONTENTS ship. installDir = path inside the zip those contents are placed at (the in-game install path under the Cyberpunk root). fileBaseName = the download filename stem (version is appended).",
   "$file_id_note": "The Nexus file id is NOT stored here. It lives in a REPOSITORY VARIABLE named NEXUS_FILE_ID_<ARTIFACT> (uppercased, '-' -> '_'), set under Settings > Secrets and variables > Actions > Variables. Two reasons: (1) a file_id DOES NOT EXIST until the mod's first file has been uploaded to Nexus BY HAND, so committing a placeholder commits a lie; (2) it is deployment config, not source. It is a VARIABLE and not a secret because it is an identifier, not a credential -- it authorizes nothing without NEXUSMODS_API_KEY, and masking it would only make a wrong id harder to debug. Get it from the mod page's Files tab > 'API Info' (Nexus labels it 'Group ID'). DO NOT use the file_id from the public v1 API -- that is a different id space and the wrong value looks entirely plausible. The workflow still honours a `file_id` key here as a fallback, but new repos should not set one.",
+  "$mod_page_note": "Two keys here drive the mod PAGE rather than the file. `update_mod_version` sets the page's headline version to the released file's version: true for a mod's own main artifact, false for any artifact that shares a page with another (an SLM preset would otherwise stamp '1.0.0kp' onto the page). `nexus_mod_id` is the number in the mod page URL; the workflow looks it up at release time to get the internal id the changelog endpoint needs, so a wrong number here costs the changelog and never posts it to the wrong page. The page DESCRIPTION is still manual -- no endpoint in the pipeline touches it.",
   "artifacts": {
     "rtc": {
       "displayName": "Relic Terminal Checklist",
@@ -12,6 +13,7 @@
       "category": "main",
       "primary_mod_manager_download": true,
       "show_requirements_pop_up": true,
+      "update_mod_version": true,
       "currentVersion": "3.0.0"
     }
   }

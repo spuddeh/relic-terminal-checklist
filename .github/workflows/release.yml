@@ -12,6 +12,12 @@ name: Release
 # (e.g. slm-v1.6.0, konpeki-v1.1.0). The artifact id must exist in release-manifest.json.
 # See RELEASING.md.
 #
+# What lands on Nexus, and what still does not:
+#   - the FILE      — the zip, its version, display name, category and description.
+#   - the PAGE version — only for artifacts with "update_mod_version": true in the manifest.
+#   - the PAGE changelog — appended from the release body (see the split step below).
+#   - the PAGE description is still MANUAL. No endpoint here touches it.
+#
 # THE FIRST NEXUS UPLOAD MUST BE DONE BY HAND. A file_id does not exist until a file has been
 # uploaded to the mod page once — so this workflow can publish a mod's UPDATES, never its first
 # file. Until the id is set it hard-fails rather than uploading into the void.
@@ -142,6 +148,8 @@ jobs:
             echo "file_base_name=$BASENAME"
             echo "primary=$(jq -r --arg a "$ART" '.artifacts[$a].primary_mod_manager_download // false' release-manifest.json)"
             echo "show_reqs=$(jq -r --arg a "$ART" '.artifacts[$a].show_requirements_pop_up // true' release-manifest.json)"
+            echo "update_mod_version=$(jq -r --arg a "$ART" '.artifacts[$a].update_mod_version // false' release-manifest.json)"
+            echo "nexus_mod_id=$(jq -r --arg a "$ART" '.artifacts[$a].nexus_mod_id // empty' release-manifest.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build zip
@@ -166,23 +174,43 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ steps.meta.outputs.tag }}" "${{ steps.zip.outputs.zip }}" --clobber
 
-      # Nexus file description is opt-in and capped at 255 chars. Put a
-      # "<!-- nexus-description-end -->" marker (on its own line) in the release
-      # body; everything BEFORE it becomes the file description. No marker, or
-      # nothing before it => no file description is sent. Over 255 chars is
-      # truncated at a word boundary as a safety net (with a warning).
-      - name: Build Nexus file description (opt-in via marker, <=255 chars)
+      # The release body feeds TWO different Nexus fields, split by one marker:
+      #
+      #   <text>                              -> the mod page CHANGELOG entry (no marker case)
+      #   <text> <!-- nexus-description-end --> <text>
+      #      ^ the FILE description (<=255 chars)   ^ the mod page CHANGELOG entry
+      #
+      # The file description is opt-in and capped at 255 chars; over that it is truncated at a word
+      # boundary as a safety net (with a warning). The changelog is whatever is left.
+      #
+      # THE CHANGELOG ENDPOINT APPENDS, IT DOES NOT REPLACE. Posting the same version twice leaves
+      # the text on the page twice, and there is no delete from here. So the changelog is sent ONLY
+      # on a `release: published` event, never on a workflow_dispatch — a dispatch is by definition
+      # a re-run, and a re-run must not double-post. Republishing a release re-fires the event and
+      # WILL double-post; edit the page by hand in that case.
+      #
+      # It is also sent only by an artifact whose `update_mod_version` is true. A changelog entry is
+      # keyed to a version string, so an artifact that does not set the page's version has no version
+      # to key one to: an SLM preset would file its entry on the SLM page under '1.0.0kp'.
+      - name: Split release body into file description and mod changelog
         id: desc
         env:
           BODY: ${{ github.event.release.body }}
+          EVENT: ${{ github.event_name }}
+          OWNS_PAGE: ${{ steps.art.outputs.update_mod_version }}
         run: |
           MARKER='<!-- nexus-description-end -->'
+          # strip HTML comments, then trim leading/trailing blank lines
+          clean() { sed 's/<!--[^>]*-->//g' | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac; }
+
           DESC=""
           if printf '%s' "$BODY" | grep -qF "$MARKER"; then
-            DESC="$(printf '%s' "$BODY" | awk -v m="$MARKER" '{i=index($0,m); if(i){if(i>1)print substr($0,1,i-1); exit} print}')"
-            # strip HTML comments, then trim leading/trailing blank lines
-            DESC="$(printf '%s' "$DESC" | sed 's/<!--[^>]*-->//g' | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac)"
+            DESC="$(printf '%s' "$BODY" | awk -v m="$MARKER" '{i=index($0,m); if(i){if(i>1)print substr($0,1,i-1); exit} print}' | clean)"
+            CHANGELOG="$(printf '%s\n' "$BODY" | awk -v m="$MARKER" 'index($0,m){f=1; next} f' | clean)"
+          else
+            CHANGELOG="$(printf '%s\n' "$BODY" | clean)"
           fi
+
           if [ -n "$DESC" ]; then
             if [ "$(printf '%s' "$DESC" | wc -m)" -gt 255 ]; then
               DESC="$(printf '%s' "$DESC" | cut -c1-250)"
@@ -193,10 +221,60 @@ jobs:
           else
             echo "No '$MARKER' content found; leaving the Nexus file description unset."
           fi
+
+          if [ "$EVENT" != "release" ]; then
+            echo "Event is '$EVENT', not 'release'; not posting a changelog (the endpoint appends, so a re-run would duplicate it)."
+            CHANGELOG=""
+          elif [ "$OWNS_PAGE" != "true" ]; then
+            echo "This artifact does not own its mod page (update_mod_version is not true); not posting a changelog."
+            CHANGELOG=""
+          elif [ -n "$CHANGELOG" ]; then
+            echo "Nexus changelog set ($(printf '%s' "$CHANGELOG" | wc -m) chars)."
+          else
+            echo "Release body is empty after the split; no changelog to post."
+          fi
+
           { echo "value<<__DESC_EOF__"; printf '%s\n' "$DESC"; echo "__DESC_EOF__"; } >> "$GITHUB_OUTPUT"
+          { echo "changelog<<__CL_EOF__"; printf '%s\n' "$CHANGELOG"; echo "__CL_EOF__"; } >> "$GITHUB_OUTPUT"
+
+      # The changelog endpoint wants the mod's INTERNAL id, which is NOT the number in the mod page
+      # URL. release-manifest.json's `nexus_mod_id` is the URL number (the API calls it
+      # `game_scoped_id`); the internal id is the `data.id` you get back from looking that number up.
+      # Two different id spaces, same trap as the file_id — so it is resolved here at release time
+      # rather than stored, because a stored copy of the wrong one looks entirely plausible.
+      #
+      # This WARNS and skips rather than failing: by the time it runs the file has already uploaded
+      # successfully, and a missing changelog is a page edit, not a broken release.
+      - name: Resolve Nexus mod id for the changelog
+        id: modid
+        if: ${{ steps.desc.outputs.changelog != '' }}
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          SCOPED: ${{ steps.art.outputs.nexus_mod_id }}
+        run: |
+          skip() { echo "::warning::$1 Skipping the Nexus changelog; add it to the mod page by hand."; echo "mod_id=" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          if [ -z "$SCOPED" ] || printf '%s' "$SCOPED" | grep -q "REPLACE_WITH"; then
+            skip "No usable 'nexus_mod_id' in release-manifest.json for this artifact."
+          fi
+
+          RESP="$(curl -sS -w '\n%{http_code}' -H "apikey: $NEXUS_API_KEY" -H "Accept: application/json" \
+                    "https://api.nexusmods.com/v3/games/cyberpunk2077/mods/$SCOPED")" || skip "Mod lookup for '$SCOPED' failed to connect."
+          CODE="$(printf '%s' "$RESP" | tail -n1)"
+          PAYLOAD="$(printf '%s' "$RESP" | sed '$d')"
+          if [ "$CODE" != "200" ]; then
+            skip "Mod lookup for game-scoped id '$SCOPED' returned HTTP $CODE."
+          fi
+
+          MODID="$(printf '%s' "$PAYLOAD" | jq -r '.data.id // empty')"
+          if [ -z "$MODID" ]; then
+            skip "Mod lookup for '$SCOPED' returned no 'data.id'."
+          fi
+          echo "Resolved mod page $SCOPED to mod id $MODID"
+          echo "mod_id=$MODID" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Nexus Mods
-        uses: Nexus-Mods/upload-action@v1.0.0-beta.8
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.10
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
           file_id: ${{ steps.fid.outputs.file_id }}
@@ -209,3 +287,11 @@ jobs:
           allow_mod_manager_download: true
           primary_mod_manager_download: ${{ steps.art.outputs.primary }}
           show_requirements_pop_up: ${{ steps.art.outputs.show_reqs }}
+          # Sets the mod PAGE's headline version to this file's version. Per-artifact, because an
+          # artifact can be one file among several on a shared page: a preset carries its own
+          # suffixed version (1.0.0kp) and must never stamp that onto the page. Absent key => false.
+          update_mod_version: ${{ steps.art.outputs.update_mod_version }}
+          # Both or neither: the action hard-fails on a changelog with no mod_id, and the resolve
+          # step deliberately returns an empty id rather than failing, so blank the text to match.
+          mod_id: ${{ steps.modid.outputs.mod_id }}
+          changelog: ${{ steps.modid.outputs.mod_id != '' && steps.desc.outputs.changelog || '' }}
