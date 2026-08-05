@@ -308,7 +308,13 @@ jobs:
           display_name: ${{ steps.art.outputs.display_name }}
           description: ${{ steps.desc.outputs.value }}
           category: ${{ steps.art.outputs.category }}
-          archive_existing_version: true
+          # ARCHIVING IS NOT THE SAME AS MOVING TO OLD FILES, and only one of them is wanted.
+          # The v3 schema lists `old_version` and `archived` as separate categories, and this input
+          # maps to `archive_existing_file`. Archived files are not downloadable; old files are.
+          # Superseding a file already leaves the previous one under OLD FILES, so setting this
+          # true only takes away a download people still sometimes need - an older build for an
+          # older game patch, most often.
+          archive_existing_version: false
           allow_mod_manager_download: true
           primary_mod_manager_download: ${{ steps.art.outputs.primary }}
           show_requirements_pop_up: ${{ steps.art.outputs.show_reqs }}
