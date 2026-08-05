@@ -128,21 +128,39 @@ jobs:
             exit 1
           fi
           get() { jq -r --arg a "$ART" ".artifacts[\$a].$1 // empty" release-manifest.json; }
-          CONTENT="$(get contentDir)"
-          INSTALL="$(get installDir)"
-          if [ -z "$CONTENT" ] || [ ! -d "$CONTENT" ]; then
-            echo "::error::contentDir '$CONTENT' for artifact '$ART' is missing."
+          # contentDir / installDir: a string each, or two matched arrays for a payload of
+          # several top-level game trees (r6 + bin). A single contentDir silently drops every
+          # tree it does not contain - the zip still builds, installs, and looks complete.
+          CONTENTS="$(jq -c --arg a "$ART" '[.artifacts[$a].contentDir // empty] | flatten' release-manifest.json)"
+          INSTALLS="$(jq -c --arg a "$ART" '[.artifacts[$a].installDir // empty] | flatten' release-manifest.json)"
+          N="$(jq length <<<"$CONTENTS")"
+          if [ "$N" -eq 0 ]; then
+            echo "::error::contentDir for artifact '$ART' is not set."
             exit 1
           fi
-          if [ -z "$INSTALL" ]; then
-            echo "::error::installDir for artifact '$ART' is not set."
+          if [ "$(jq length <<<"$INSTALLS")" -ne "$N" ]; then
+            echo "::error::contentDir and installDir for '$ART' must pair up one to one."
             exit 1
           fi
+          i=0
+          while [ "$i" -lt "$N" ]; do
+            C="$(jq -r ".[$i]" <<<"$CONTENTS")"
+            I="$(jq -r ".[$i]" <<<"$INSTALLS")"
+            if [ -z "$C" ] || [ ! -d "$C" ]; then
+              echo "::error::contentDir '$C' for artifact '$ART' is missing."
+              exit 1
+            fi
+            if [ -z "$I" ] || [ "$I" = "null" ]; then
+              echo "::error::installDir for artifact '$ART' (entry $i) is not set."
+              exit 1
+            fi
+            i=$((i+1))
+          done
           BASENAME="$(get fileBaseName)"
           [ -z "$BASENAME" ] && BASENAME="$ART"   # fall back to the artifact id
           {
-            echo "content_dir=$CONTENT"
-            echo "install_dir=$INSTALL"
+            echo "content_dirs=$CONTENTS"
+            echo "install_dirs=$INSTALLS"
             echo "category=$(get category)"
             echo "display_name=$(get displayName)"
             echo "file_base_name=$BASENAME"
@@ -156,13 +174,20 @@ jobs:
         id: zip
         run: |
           ZIP="${{ steps.art.outputs.file_base_name }}_v${{ steps.meta.outputs.version }}.zip"
-          CONTENT='${{ steps.art.outputs.content_dir }}'
-          INSTALL='${{ steps.art.outputs.install_dir }}'
-          # Stage contentDir's contents into the in-game install path, then zip the stage so the
-          # install path ("bin/...", "r6/...", ...) sits at the zip root exactly as the game expects.
+          CONTENTS='${{ steps.art.outputs.content_dirs }}'
+          INSTALLS='${{ steps.art.outputs.install_dirs }}'
+          # Stage every content tree into its in-game install path, then zip the stage so the
+          # install paths ("bin/...", "r6/...", ...) sit at the zip root exactly as the game expects.
           STAGE="$(mktemp -d)"
-          mkdir -p "$STAGE/$INSTALL"
-          cp -r "$CONTENT/." "$STAGE/$INSTALL/"
+          N="$(jq length <<<"$CONTENTS")"
+          i=0
+          while [ "$i" -lt "$N" ]; do
+            C="$(jq -r ".[$i]" <<<"$CONTENTS")"
+            I="$(jq -r ".[$i]" <<<"$INSTALLS")"
+            mkdir -p "$STAGE/$I"
+            cp -r "$C/." "$STAGE/$I/"
+            i=$((i+1))
+          done
           ( cd "$STAGE" && zip -r -X "$GITHUB_WORKSPACE/$ZIP" . -x '*/.git/*' '*/.DS_Store' )
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
           echo "Built $ZIP:"
