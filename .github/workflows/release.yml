@@ -228,12 +228,24 @@ jobs:
           # strip HTML comments, then trim leading/trailing blank lines
           clean() { sed 's/<!--[^>]*-->//g' | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac; }
 
+          # THE RELEASE BODY IS MARKDOWN AND NEXUS RENDERS NEITHER FIELD AS MARKDOWN. Sent as-is,
+          # a changelog entry arrives with its '##' heading, '-' bullets, '**' and backticks
+          # showing as characters. Headings go, bullets and emphasis markers are stripped, and a
+          # link becomes 'text (url)'. Both fields want plain lines.
+          flatten() {
+            sed -E -e '/^[[:space:]]*#{1,6}[[:space:]]/d' \
+                   -e 's/^[[:space:]]*[-*+][[:space:]]+//' \
+                   -e 's/\*\*//g' \
+                   -e 's/`//g' \
+                   -e 's/\[([^]]*)\]\(([^)]*)\)/\1 (\2)/g'
+          }
+
           DESC=""
           if printf '%s' "$BODY" | grep -qF "$MARKER"; then
-            DESC="$(printf '%s' "$BODY" | awk -v m="$MARKER" '{i=index($0,m); if(i){if(i>1)print substr($0,1,i-1); exit} print}' | clean)"
-            CHANGELOG="$(printf '%s\n' "$BODY" | awk -v m="$MARKER" 'index($0,m){f=1; next} f' | clean)"
+            DESC="$(printf '%s' "$BODY" | awk -v m="$MARKER" '{i=index($0,m); if(i){if(i>1)print substr($0,1,i-1); exit} print}' | clean | flatten)"
+            CHANGELOG="$(printf '%s\n' "$BODY" | awk -v m="$MARKER" 'index($0,m){f=1; next} f' | clean | flatten)"
           else
-            CHANGELOG="$(printf '%s\n' "$BODY" | clean)"
+            CHANGELOG="$(printf '%s\n' "$BODY" | clean | flatten)"
           fi
 
           if [ -n "$DESC" ]; then
