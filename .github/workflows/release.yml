@@ -15,7 +15,8 @@ name: Release
 # What lands on Nexus, and what still does not:
 #   - the FILE      — the zip, its version, display name, category and description.
 #   - the PAGE version — only for artifacts with "update_mod_version": true in the manifest.
-#   - the PAGE changelog — appended from the release body (see the split step below).
+#   - the PAGE changelog — appended from the release body for artifacts with "post_changelog": true
+#     (default: the same as update_mod_version), under the artifact's own version (see the split step).
 #   - the PAGE description is still MANUAL. No endpoint here touches it.
 #
 # THE FIRST NEXUS UPLOAD MUST BE DONE BY HAND. A file_id does not exist until a file has been
@@ -167,6 +168,7 @@ jobs:
             echo "primary=$(jq -r --arg a "$ART" '.artifacts[$a].primary_mod_manager_download // false' release-manifest.json)"
             echo "show_reqs=$(jq -r --arg a "$ART" '.artifacts[$a].show_requirements_pop_up // true' release-manifest.json)"
             echo "update_mod_version=$(jq -r --arg a "$ART" '.artifacts[$a].update_mod_version // false' release-manifest.json)"
+            echo "post_changelog=$(jq -r --arg a "$ART" '.artifacts[$a].post_changelog // .artifacts[$a].update_mod_version // false' release-manifest.json)"
             echo "nexus_mod_id=$(jq -r --arg a "$ART" '.artifacts[$a].nexus_mod_id // empty' release-manifest.json)"
           } >> "$GITHUB_OUTPUT"
 
@@ -214,15 +216,17 @@ jobs:
       # a re-run, and a re-run must not double-post. Republishing a release re-fires the event and
       # WILL double-post; edit the page by hand in that case.
       #
-      # It is also sent only by an artifact whose `update_mod_version` is true. A changelog entry is
-      # keyed to a version string, so an artifact that does not set the page's version has no version
-      # to key one to: an SLM preset would file its entry on the SLM page under '1.0.0kp'.
+      # It is also sent only by an artifact that posts a changelog: `post_changelog` in the manifest,
+      # which defaults to `update_mod_version`. A changelog entry is filed under the artifact's own
+      # version string, so an artifact that shares a page posts one only when its versions are meant
+      # to read apart from the page's, as RadioXL's builder file does with its 'sb' suffix; an SLM
+      # preset would file its entry on the SLM page under '1.0.0kp' and leaves the key unset.
       - name: Split release body into file description and mod changelog
         id: desc
         env:
           BODY: ${{ github.event.release.body }}
           EVENT: ${{ github.event_name }}
-          OWNS_PAGE: ${{ steps.art.outputs.update_mod_version }}
+          POSTS_CHANGELOG: ${{ steps.art.outputs.post_changelog }}
         run: |
           MARKER='<!-- nexus-description-end -->'
           # strip HTML comments, then trim leading/trailing blank lines
@@ -262,8 +266,8 @@ jobs:
           if [ "$EVENT" != "release" ]; then
             echo "Event is '$EVENT', not 'release'; not posting a changelog (the endpoint appends, so a re-run would duplicate it)."
             CHANGELOG=""
-          elif [ "$OWNS_PAGE" != "true" ]; then
-            echo "This artifact does not own its mod page (update_mod_version is not true); not posting a changelog."
+          elif [ "$POSTS_CHANGELOG" != "true" ]; then
+            echo "This artifact does not post a changelog (post_changelog, or update_mod_version, is not true); not posting one."
             CHANGELOG=""
           elif [ -n "$CHANGELOG" ]; then
             echo "Nexus changelog set ($(printf '%s' "$CHANGELOG" | wc -m) chars)."
