@@ -21,7 +21,8 @@ name: Release
 #
 # THE FIRST NEXUS UPLOAD MUST BE DONE BY HAND. A file_id does not exist until a file has been
 # uploaded to the mod page once — so this workflow can publish a mod's UPDATES, never its first
-# file. Until the id is set it hard-fails rather than uploading into the void.
+# file. With no file_id it builds the zip, attaches it to the GitHub release, and skips every
+# Nexus step: that zip is the file to upload by hand.
 #
 # Backfilled/historical releases created by scripts/backfill-releases.ps1 carry an invisible
 # "<!-- skip-nexus -->" marker in their body and are skipped here (they are already on Nexus,
@@ -109,16 +110,18 @@ jobs:
           fi
 
           if [ -z "$FILEID" ] || echo "$FILEID" | grep -q "REPLACE_WITH"; then
-            echo "::error::No Nexus file_id for artifact '$ART'."
-            echo "::error::A file_id DOES NOT EXIST until the mod's first file has been uploaded to Nexus BY HAND."
-            echo "::error::Upload that first file manually, then read the id off the mod page (Files tab > API Info —"
-            echo "::error::Nexus labels it 'Group ID'), and set the repository variable '$KEY'"
-            echo "::error::(Settings > Secrets and variables > Actions > Variables). Do NOT use the file_id from the"
-            echo "::error::public v1 API — that is a different id space and the wrong value looks entirely plausible."
-            exit 1
+            echo "::warning::No Nexus file_id for artifact '$ART': building the zip for the GitHub release only, and skipping Nexus."
+            echo "::notice::A file_id DOES NOT EXIST until the mod's first file has been uploaded to Nexus BY HAND."
+            echo "::notice::Upload the zip attached to this release, then read the id off the mod page (Files tab > API Info —"
+            echo "::notice::Nexus labels it 'Group ID'), and set the repository variable '$KEY'"
+            echo "::notice::(Settings > Secrets and variables > Actions > Variables). Do NOT use the file_id from the"
+            echo "::notice::public v1 API — that is a different id space and the wrong value looks entirely plausible."
+            echo "first=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "Using file_id from $SRC"
           echo "file_id=$FILEID" >> "$GITHUB_OUTPUT"
+          echo "first=false" >> "$GITHUB_OUTPUT"
 
       - name: Look up artifact in manifest
         id: art
@@ -223,6 +226,7 @@ jobs:
       # preset would file its entry on the SLM page under '1.0.0kp' and leaves the key unset.
       - name: Split release body into file description and mod changelog
         id: desc
+        if: ${{ steps.fid.outputs.first != 'true' }}
         env:
           BODY: ${{ github.event.release.body }}
           EVENT: ${{ github.event_name }}
@@ -288,7 +292,7 @@ jobs:
       # successfully, and a missing changelog is a page edit, not a broken release.
       - name: Resolve Nexus mod id for the changelog
         id: modid
-        if: ${{ steps.desc.outputs.changelog != '' }}
+        if: ${{ steps.fid.outputs.first != 'true' && steps.desc.outputs.changelog != '' }}
         env:
           NEXUS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
           SCOPED: ${{ steps.art.outputs.nexus_mod_id }}
@@ -315,6 +319,7 @@ jobs:
           echo "mod_id=$MODID" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Nexus Mods
+        if: ${{ steps.fid.outputs.first != 'true' }}
         uses: Nexus-Mods/upload-action@v1.0.0-beta.10
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
